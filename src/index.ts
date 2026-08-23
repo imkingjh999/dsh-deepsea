@@ -88,7 +88,6 @@ async function loadIdentity(root: string): Promise<{ publicKey: string, privateK
 }
 
 /**
-/**
  * Server-adjudicated PoW attempt (v3): the Worker mints the challenge,
  * hashes it once and decides the outcome; on a win we mirror the released
  * catalog card into the local store. Resolves the attempt payload (win or
