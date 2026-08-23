@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-deepsea",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "main": "./lib/index.js",
   "description": "深海垂爪：context 占用率驱动的深海抓取小游戏浮窗，AI 答完抓卡",
   "engines": {

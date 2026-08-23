@@ -94,7 +94,6 @@ export function Leaderboard(props: { onClose: () => void }): ReactNode {
                   {isEn() ? rarityMeta('LEGENDARY').en : rarityMeta('LEGENDARY').zh}
                 </th>
                 <th style={{ padding: '5px 6px', fontWeight: 600 }}>{tr('rank.rarest')}</th>
-                <th style={{ padding: '5px 6px', fontWeight: 600, textAlign: 'right' }}>{tr('rank.deepest')}</th>
               </tr>
             </thead>
             <tbody>
@@ -126,9 +125,6 @@ export function Leaderboard(props: { onClose: () => void }): ReactNode {
                       {row.legendary_count !== undefined ? String(row.legendary_count) : '—'}
                     </td>
                     <td style={{ padding: '5px 6px', color: meta.color }}>{isEn() ? meta.en : meta.zh}</td>
-                    <td style={{ padding: '5px 6px', color: '#7fa6cf', textAlign: 'right' }}>
-                      {(row.deepest * 100).toFixed(0)}%
-                    </td>
                   </tr>
                 )
               })}

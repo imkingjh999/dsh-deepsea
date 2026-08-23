@@ -7,10 +7,19 @@
  * trusts payloads signed by a registered public key.
  *
  * Endpoints:
- *   POST /api/upload      — upsert a battle batch (Ed25519 signed)
+ *   POST /api/upload      — v4 anti-cheat: READ-ONLY confirmation of
+ *                           already-adjudicated wins (Ed25519 signed);
+ *                           a card counts only if (publicKey, mintId)
+ *                           exists in pow_wins — forged cards are
+ *                           silently dropped, nothing is ever written
  *   GET  /api/wall        — latest catches across all divers (limit, offset)
  *   GET  /api/stats       — global counters + rarity histogram
  *   GET  /api/diver/:key  — one diver's profile + recent catches
+ *
+ * v4 anti-cheat: every public stat reads pow_wins (the server-adjudicated
+ * ledger) joined to pool_cards — leaders, wall, stats and diver profiles
+ * can no longer be inflated by self-reported uploads. The legacy
+ * catches/divers tables are retired as data sources.
  *
  * v2 — pre-minted card pool + hash-chain ledger (schema-v2.sql):
  *   POST /admin/mint           — mint one pool card (Bearer ADMIN_TOKEN);
@@ -25,6 +34,7 @@
  *   GET  /api/chain/verify     — recompute the whole chain, report breaks
  */
 import { starOf, starRankOf, starRankOfStar, goldOf } from './stars.ts'
+import { candidateMints, type UploadCard } from './upload-gate.ts'
 export { poolCardJson } from './card-json.ts'
 import { appendBlock, blockId, GENESIS_HASH, sha256Hex } from './chain.ts'
 import { handleRechain } from './rechain.ts'
@@ -38,15 +48,6 @@ export interface Env {
   ADMIN_TOKEN?: string
 }
 
-interface UploadCard {
-  id: string
-  name: string
-  rarity: 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY'
-  depth: number
-  zone: string
-  createdAt: number
-}
-
 interface UploadPayload {
   publicKey: string
   caughtAt: number
@@ -57,8 +58,6 @@ interface UploadPayload {
 export const RARITY_ORDER = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'] as const
 const RULES = {
   MAX_CARDS_PER_BATCH: 200,
-  MAX_NAME: 64,
-  MIN_INTERVAL_SEC: 20,
 }
 
 export function json(data: unknown, status = 200): Response {
@@ -81,19 +80,6 @@ export async function verify(publicKeyB64: string, message: string, signatureB64
   }
 }
 
-function validateCards(cards: UploadCard[]): string | null {
-  if (!Array.isArray(cards) || cards.length === 0) return 'cards empty'
-  if (cards.length > RULES.MAX_CARDS_PER_BATCH) return 'too many cards'
-  for (const c of cards) {
-    if (typeof c.id !== 'string' || c.id.length > 40) return 'bad card id'
-    if (typeof c.name !== 'string' || c.name.length > RULES.MAX_NAME) return 'bad card name'
-    if (!(RARITY_ORDER as readonly string[]).includes(c.rarity)) return 'bad rarity'
-    if (typeof c.depth !== 'number' || c.depth < 0 || c.depth > 1) return 'bad depth'
-    if (typeof c.createdAt !== 'number' || c.createdAt <= 0) return 'bad createdAt'
-  }
-  return null
-}
-
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url)
@@ -106,114 +92,101 @@ export default {
       if (typeof publicKey !== 'string' || publicKey.length > 200) return json({ ok: false, error: 'bad publicKey' },
          400)
       if (typeof caughtAt !== 'number') return json({ ok: false, error: 'bad caughtAt' }, 400)
-      const invalid = validateCards(cards)
-      if (invalid !== null) return json({ ok: false, error: invalid }, 400)
+      if (!Array.isArray(cards) || cards.length === 0 || cards.length > RULES.MAX_CARDS_PER_BATCH) {
+        return json({ ok: false, error: 'bad cards' }, 400)
+      }
+      // The signature still proves possession of the submitting key
+      // (sybil keys sign fine — they just never win anything to report).
       // Signature covers everything except the signature field itself.
       const message = JSON.stringify({ publicKey, caughtAt, cards })
       if (!(await verify(publicKey, message, signature))) {
         return json({ ok: false, error: 'signature mismatch' }, 403)
       }
-
-      const now = Date.now()
-      const existing = await env.DB.prepare('SELECT last_active_at, total_catches FROM divers WHERE public_key = ?')
-        .bind(publicKey).first<{ last_active_at: number, total_catches: number } | null>()
-      if (existing !== null && existing.last_active_at !== null) {
-        if (now - existing.last_active_at < RULES.MIN_INTERVAL_SEC * 1000) {
-          return json({ ok: false, error: 'rate limited' }, 429)
-        }
+      // v4 anti-cheat: uploads are READ-ONLY confirmations. A card counts
+      // only when the server itself adjudicated the win — (publicKey,
+      // mintId) must exist in pow_wins. Forged rarity/depth/names are
+      // ignored entirely: nothing is written, so the wall, the leaders
+      // and the stats (all of which read pow_wins) can never be polluted.
+      // Legacy batches without mintId verify as 0 — old hosts keep
+      // working, they simply have nothing the server can confirm.
+      const mintIds = candidateMints(cards)
+      let verified = 0
+      if (mintIds.length > 0) {
+        const ph = mintIds.map(() => '?').join(',')
+        const rows = await env.DB.prepare(
+          `SELECT mint_id FROM pow_wins WHERE pubkey = ? AND mint_id IN (${ph})`,
+        ).bind(publicKey, ...mintIds).all<{ mint_id: string }>()
+        verified = rows.results.length
       }
-      const deepest = Math.max(...cards.map((c) => c.depth))
-      const rarest = cards.reduce((best, c) =>
-        (RARITY_ORDER as readonly string[]).indexOf(c.rarity) > (RARITY_ORDER as readonly string[]).indexOf(best) ?
-           c.rarity : best, 'COMMON' as UploadCard['rarity'])
-      if (existing === null) {
-        await env.DB.prepare(
-          'INSERT INTO divers (public_key, first_seen_at, last_active_at, ' +
-            'total_catches, deepest, rarest) VALUES (?, ?, ?, 0, ?, ?)',
-        )
-          .bind(publicKey, now, now, deepest, rarest).run()
-      } else {
-        await env.DB.prepare(
-          'UPDATE divers SET last_active_at = ?, deepest = MAX(deepest, ?), rarest = ? WHERE public_key = ?',
-        )
-          .bind(now, deepest, rarest, publicKey).run()
-      }
-      // One D1 BATCH for all rows: a per-card await ran ~180ms/card over
-      // the network (198 cards ≈ 36s — past the host's 15s fetch timeout,
-      // which surfaced as 上传失败). A batch is a single subrequest and
-      // lands in well under a second. INSERT OR IGNORE + the unique
-      // (public_key, card_id) index make re-uploads idempotent, so
-      // total_catches counts only genuinely NEW rows.
-      const seen = new Set<string>()
-      const stmts: D1PreparedStatement[] = []
-      for (const c of cards) {
-        const key = `${c.id}:${publicKey}`
-        if (seen.has(key)) continue // one row per card per diver
-        seen.add(key)
-        stmts.push(env.DB.prepare(
-          'INSERT OR IGNORE INTO catches (public_key, card_id, name, rarity, depth, zone, caught_at) ' +
-          'VALUES (?, ?, ?, ?, ?, ?, ?)')
-          .bind(publicKey, c.id, c.name, c.rarity, c.depth, String(c.zone).slice(0, 24), c.createdAt))
-      }
-      let stored = 0
-      if (stmts.length > 0) {
-        const results = await env.DB.batch(stmts)
-        for (const r of results) stored += r.meta.changes
-      }
-      // Count only the rows actually inserted (dedup on re-upload).
-      await env.DB.prepare(
-        'UPDATE divers SET total_catches = total_catches + ? WHERE public_key = ?',
-      ).bind(stored, publicKey).run()
-      return json({ ok: true, value: { stored } })
+      return json({ ok: true, value: { stored: verified, verified } })
     }
 
     if (req.method === 'GET' && path === '/api/leaders') {
-      // Global diver ranking: most catches first, newest catch breaks ties.
-      // The per-rarity counts come from a LEFT JOIN on catches — divers
-      // with zero RARE/EPIC/LEGENDARY catches still surface (SUM returns
-      // NULL for the no-match branch, hence the COALESCE to 0).
+      // Global diver ranking, v4: aggregated straight from pow_wins (the
+      // server-adjudicated ledger) joined to pool_cards — self-reported
+      // data can no longer inflate any number. rarest is derived from the
+      // won cards' true rarities; deepest is gone for good (no
+      // server-side truth for it). Divers with zero wins never surface,
+      // which is also the sybil gate: a fresh key has no ledger rows.
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 100)
       const rows = await env.DB.prepare(
-        'SELECT d.public_key, d.total_catches, d.deepest, d.rarest, d.last_active_at, ' +
-          'COALESCE(SUM(CASE WHEN c.rarity = \'RARE\' THEN 1 ELSE 0 END), 0) AS rare_count, ' +
-          'COALESCE(SUM(CASE WHEN c.rarity = \'EPIC\' THEN 1 ELSE 0 END), 0) AS epic_count, ' +
-          'COALESCE(SUM(CASE WHEN c.rarity = \'LEGENDARY\' THEN 1 ELSE 0 END), 0) AS legendary_count ' +
-          'FROM divers d LEFT JOIN catches c ON c.public_key = d.public_key ' +
-          'WHERE d.total_catches > 0 ' +
-          'GROUP BY d.public_key ' +
-          'ORDER BY d.total_catches DESC, d.last_active_at DESC LIMIT ?')
+        'SELECT w.pubkey AS public_key, COUNT(*) AS total_catches, MAX(w.won_at) AS last_active_at, ' +
+          'COALESCE(SUM(CASE WHEN p.rarity = \'RARE\' THEN 1 ELSE 0 END), 0) AS rare_count, ' +
+          'COALESCE(SUM(CASE WHEN p.rarity = \'EPIC\' THEN 1 ELSE 0 END), 0) AS epic_count, ' +
+          'COALESCE(SUM(CASE WHEN p.rarity = \'LEGENDARY\' THEN 1 ELSE 0 END), 0) AS legendary_count, ' +
+          'CASE WHEN SUM(CASE WHEN p.rarity = \'LEGENDARY\' THEN 1 ELSE 0 END) > 0 THEN \'LEGENDARY\' ' +
+          'WHEN SUM(CASE WHEN p.rarity = \'EPIC\' THEN 1 ELSE 0 END) > 0 THEN \'EPIC\' ' +
+          'WHEN SUM(CASE WHEN p.rarity = \'RARE\' THEN 1 ELSE 0 END) > 0 THEN \'RARE\' ' +
+          'ELSE \'COMMON\' END AS rarest ' +
+          'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'GROUP BY w.pubkey ' +
+          'ORDER BY total_catches DESC, last_active_at DESC LIMIT ?')
         .bind(limit).all()
       return json({ ok: true, value: { leaders: rows.results } })
     }
 
     if (req.method === 'GET' && path === '/api/wall') {
+      // v4: the wall streams server-adjudicated wins only — card_id is
+      // the mint, caught_at is the ledger's won_at. depth is not returned
+      // (it was self-reported and is retired everywhere).
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 200)
       const offset = Math.max(Number(url.searchParams.get('offset') ?? 0) || 0, 0)
       const rows = await env.DB.prepare(
-        'SELECT card_id, name, rarity, depth, zone, caught_at FROM catches ORDER BY caught_at DESC LIMIT ? OFFSET ?')
+        'SELECT p.mint_id AS card_id, p.name, p.rarity, p.zone, w.won_at AS caught_at ' +
+          'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'ORDER BY w.won_at DESC LIMIT ? OFFSET ?')
         .bind(limit, offset).all()
       return json({ ok: true, value: { catches: rows.results } })
     }
 
     if (req.method === 'GET' && path === '/api/stats') {
+      // v4: stats count only server-adjudicated wins.
       const totals = await env.DB.prepare(
-        'SELECT COUNT(*) AS catches, COUNT(DISTINCT public_key) AS divers FROM catches').first<{ catches: number,
+        'SELECT COUNT(*) AS catches, COUNT(DISTINCT pubkey) AS divers FROM pow_wins').first<{ catches: number,
            divers: number } | null>()
       const histogram = await env.DB.prepare(
-        'SELECT rarity, COUNT(*) AS n FROM catches GROUP BY rarity').all()
+        'SELECT p.rarity AS rarity, COUNT(*) AS n FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'GROUP BY p.rarity').all()
       return json({ ok: true, value: { totals: totals ?? { catches: 0, divers: 0 }, histogram: histogram.results } })
     }
 
     const diverMatch = path.match(/^\/api\/diver\/([A-Za-z0-9+/=]+)$/)
     if (req.method === 'GET' && diverMatch !== null) {
+      // v4: a diver's profile is their win ledger, nothing else.
       const key = decodeURIComponent(diverMatch[1] ?? '')
       const diver = await env.DB.prepare(
-        'SELECT total_catches, deepest, rarest, first_seen_at, last_active_at FROM divers WHERE public_key = ?')
+        'SELECT COUNT(*) AS total_catches, MIN(w.won_at) AS first_seen_at, MAX(w.won_at) AS last_active_at, ' +
+          'CASE WHEN SUM(CASE WHEN p.rarity = \'LEGENDARY\' THEN 1 ELSE 0 END) > 0 THEN \'LEGENDARY\' ' +
+          'WHEN SUM(CASE WHEN p.rarity = \'EPIC\' THEN 1 ELSE 0 END) > 0 THEN \'EPIC\' ' +
+          'WHEN SUM(CASE WHEN p.rarity = \'RARE\' THEN 1 ELSE 0 END) > 0 THEN \'RARE\' ' +
+          'ELSE \'COMMON\' END AS rarest ' +
+          'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id WHERE w.pubkey = ?')
         .bind(key).first()
       if (diver === null) return json({ ok: false, error: 'unknown diver' }, 404)
       const recent = await env.DB.prepare(
-        'SELECT card_id, name, rarity, depth, zone, caught_at FROM catches ' +
-          'WHERE public_key = ? ORDER BY caught_at DESC LIMIT 30',
+        'SELECT p.mint_id AS card_id, p.name, p.rarity, p.zone, w.won_at AS caught_at FROM pow_wins w ' +
+          'JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'WHERE w.pubkey = ? ORDER BY w.won_at DESC LIMIT 30',
       )
         .bind(key).all()
       return json({ ok: true, value: { diver, catches: recent.results } })

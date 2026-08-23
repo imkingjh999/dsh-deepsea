@@ -243,8 +243,11 @@ export function apply(ctx: HostContext, config?: HostConfig): void {
         const payload = {
           publicKey: identity.publicKey,
           caughtAt: Date.now(),
-          cards: cards.map((c) => ({ id: c.id, name: c.name, rarity: c.rarity, depth: c.depth, zone: c.zone,
-             createdAt: c.createdAt })),
+          // v4 anti-cheat: mintId is the only claim the worker trusts —
+          // it counts a card only if (publicKey, mintId) is in its
+          // pow_wins ledger. Legacy local cards (no mint) verify as 0.
+          cards: cards.map((c) => ({ id: c.id, mintId: c.mintId ?? '', name: c.name, rarity: c.rarity,
+            depth: c.depth, zone: c.zone, createdAt: c.createdAt })),
         }
         const payloadText = JSON.stringify(payload)
         const signature = edSign(null, Buffer.from(payloadText), createPrivateKey(identity.privateKeyPem)).toString(

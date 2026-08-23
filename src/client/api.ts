@@ -58,7 +58,6 @@ export async function uploadBattle(cards: CardRecord[]): Promise<void> {
 export interface LeaderRow {
   public_key: string
   total_catches: number
-  deepest: number
   rarest: string
   last_active_at: number
   /** Optional per-rarity catch counts (RARE/EPIC/LEGENDARY) — omitted by

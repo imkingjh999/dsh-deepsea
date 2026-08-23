@@ -73,7 +73,6 @@ export const zh: Record<string, string> = {
   'rank.diver': '潜水员',
   'rank.catches': '捕获',
   'rank.rarest': '最稀有',
-  'rank.deepest': '最深',
   'rank.me': '你',
   'wall.rank': '排行榜',
 }
@@ -146,7 +145,6 @@ export const en: Record<string, string> = {
   'rank.diver': 'Diver',
   'rank.catches': 'Grabs',
   'rank.rarest': 'Rarest',
-  'rank.deepest': 'Deepest',
   'rank.me': 'you',
   'wall.rank': 'Leaderboard',
 }
