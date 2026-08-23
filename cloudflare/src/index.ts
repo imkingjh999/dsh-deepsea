@@ -21,6 +21,16 @@
  * can no longer be inflated by self-reported uploads. The legacy
  * catches/divers tables are retired as data sources.
  *
+ * v5 GitHub identity: only divers who bound their key to a GitHub account
+ * (OAuth via /auth/github/*) appear on the public leaderboard, shown by
+ * their GitHub username. Binding requires an Ed25519 signature over the
+ * link material (github-auth.ts), so nobody can claim someone else's
+ * stats; one GitHub account maps to one key. pow_wins remains the only
+ * stats source — the link is purely an identity layer.
+ *   GET  /auth/github/start     — verify sig, 302 to GitHub authorize
+ *   GET  /auth/github/callback  — code→token→user, upsert github_links
+ *   GET  /api/link?publicKey=   — this key's binding (login/avatar/none)
+ *
  * v2 — pre-minted card pool + hash-chain ledger (schema-v2.sql):
  *   POST /admin/mint           — mint one pool card (Bearer ADMIN_TOKEN);
  *                                appends a 'mint' block, stores PNGs in R2
@@ -35,6 +45,7 @@
  */
 import { starOf, starRankOf, starRankOfStar, goldOf } from './stars.ts'
 import { candidateMints, type UploadCard } from './upload-gate.ts'
+import { decodeState, encodeState, linkFresh, linkMessage } from './github-auth.ts'
 export { poolCardJson } from './card-json.ts'
 import { appendBlock, blockId, GENESIS_HASH, sha256Hex } from './chain.ts'
 import { handleRechain } from './rechain.ts'
@@ -46,6 +57,10 @@ export interface Env {
   BUCKET: R2Bucket
   /** Shared secret for the mint CLI (wrangler secret put ADMIN_TOKEN). */
   ADMIN_TOKEN?: string
+  /** GitHub OAuth App credentials (wrangler secret put GITHUB_CLIENT_SECRET;
+   * client id is public — var GITHUB_CLIENT_ID). */
+  GITHUB_CLIENT_ID?: string
+  GITHUB_CLIENT_SECRET?: string
 }
 
 interface UploadPayload {
@@ -121,13 +136,100 @@ export default {
       return json({ ok: true, value: { stored: verified, verified } })
     }
 
+    /* ---------------- v5 GitHub identity routes ---------------- */
+
+    if (req.method === 'GET' && path === '/auth/github/start') {
+      if (env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_SECRET === undefined) {
+        return json({ ok: false, error: 'github oauth not configured' }, 503)
+      }
+      const pubkey = url.searchParams.get('pubkey') ?? ''
+      const nonce = url.searchParams.get('nonce') ?? ''
+      const ts = Number(url.searchParams.get('ts') ?? '')
+      const sig = url.searchParams.get('sig') ?? ''
+      if (pubkey.length === 0 || pubkey.length > 200 || nonce.length < 8 || nonce.length > 64 ||
+          !Number.isFinite(ts) || sig.length === 0 || sig.length > 200) {
+        return json({ ok: false, error: 'bad params' }, 400)
+      }
+      if (!linkFresh(ts, Date.now())) return json({ ok: false, error: 'link expired, retry' }, 400)
+      if (!(await verify(pubkey, linkMessage(pubkey, nonce, ts), sig))) {
+        return json({ ok: false, error: 'signature mismatch' }, 403)
+      }
+      const state = encodeState({ pubkey, nonce, ts, sig })
+      const redirect = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
+        env.GITHUB_CLIENT_ID)}&redirect_uri=${encodeURIComponent(
+        'https://deepsea.openclawd.qzz.io/auth/github/callback')}&scope=read:user&state=${encodeURIComponent(state)}`
+      return Response.redirect(redirect, 302)
+    }
+
+    if (req.method === 'GET' && path === '/auth/github/callback') {
+      if (env.GITHUB_CLIENT_ID === undefined || env.GITHUB_CLIENT_SECRET === undefined) {
+        return json({ ok: false, error: 'github oauth not configured' }, 503)
+      }
+      const code = url.searchParams.get('code') ?? ''
+      const stateRaw = url.searchParams.get('state') ?? ''
+      const state = decodeState(stateRaw)
+      if (code.length === 0 || state === null) return json({ ok: false, error: 'bad callback' }, 400)
+      if (!linkFresh(state.ts, Date.now())) return json({ ok: false, error: 'link expired, retry' }, 400)
+      // Re-verify the signature at callback time: the state param is
+      // attacker-controllable, the signature over it is not.
+      if (!(await verify(state.pubkey, linkMessage(state.pubkey, state.nonce, state.ts), state.sig))) {
+        return json({ ok: false, error: 'signature mismatch' }, 403)
+      }
+      const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json', 'user-agent': 'deepsea-leaderboard' },
+        body: JSON.stringify({
+          client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET,
+          code, redirect_uri: 'https://deepsea.openclawd.qzz.io/auth/github/callback',
+        }),
+      })
+      const tokenData = await tokenRes.json() as { access_token?: string }
+      if (typeof tokenData.access_token !== 'string' || tokenData.access_token === '') {
+        return json({ ok: false, error: 'github denied the code' }, 403)
+      }
+      const userRes = await fetch('https://api.github.com/user', {
+        headers: { authorization: `Bearer ${tokenData.access_token}`, accept: 'application/vnd.github+json',
+          'user-agent': 'deepsea-leaderboard' },
+      })
+      const user = await userRes.json() as { id?: number, login?: string, avatar_url?: string }
+      if (typeof user.id !== 'number' || typeof user.login !== 'string' || user.login === '') {
+        return json({ ok: false, error: 'github user lookup failed' }, 502)
+      }
+      // GitHub identity owns the row: rebinding a GitHub account to a new
+      // key replaces the old key's row (device change), and re-linking a
+      // key to a new GitHub account replaces the old login.
+      await env.DB.prepare(
+        `INSERT INTO github_links (pubkey, github_id, github_login, avatar_url, linked_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(pubkey) DO UPDATE SET github_id = excluded.github_id,
+           github_login = excluded.github_login, avatar_url = excluded.avatar_url,
+           linked_at = excluded.linked_at
+         ON CONFLICT(github_id) DO UPDATE SET pubkey = excluded.pubkey,
+           avatar_url = excluded.avatar_url, linked_at = excluded.linked_at`,
+      ).bind(state.pubkey, user.id, user.login, String(user.avatar_url ?? '').slice(0, 300), Date.now()).run()
+      const html = `<!doctype html><html><head><meta charset="utf-8"><title>deepsea</title></head>
+<body style="background:#01030a;color:#cfe6ff;font:14px/1.6 system-ui;display:flex;min-height:100vh;align-items:center;justify-content:center">
+<div style="text-align:center">🐟 GitHub 绑定成功：@${user.login}<br>可关闭此页，回到深海窗口查看排行榜</div></body></html>`
+      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+    }
+
+    if (req.method === 'GET' && path === '/api/link') {
+      const publicKey = url.searchParams.get('publicKey') ?? ''
+      if (publicKey.length === 0 || publicKey.length > 200) return json({ ok: false, error: 'bad publicKey' }, 400)
+      const row = await env.DB.prepare(
+        'SELECT github_login, avatar_url FROM github_links WHERE pubkey = ?',
+      ).bind(publicKey).first<{ github_login: string, avatar_url: string } | null>()
+      return json({ ok: true, value: { login: row?.github_login ?? '', avatarUrl: row?.avatar_url ?? '' } })
+    }
+
     if (req.method === 'GET' && path === '/api/leaders') {
-      // Global diver ranking, v4: aggregated straight from pow_wins (the
+      // Global diver ranking, v5: aggregated straight from pow_wins (the
       // server-adjudicated ledger) joined to pool_cards — self-reported
       // data can no longer inflate any number. rarest is derived from the
-      // won cards' true rarities; deepest is gone for good (no
-      // server-side truth for it). Divers with zero wins never surface,
-      // which is also the sybil gate: a fresh key has no ledger rows.
+      // won cards' true rarities. v5: only GitHub-linked divers appear
+      // (the INNER-style WHERE on the LEFT JOIN drops unlinked keys —
+      // "sign in before you can submit to the leaderboard"), shown by
+      // their GitHub username. Unlinked divers simply don't exist here.
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 100)
       const rows = await env.DB.prepare(
         'SELECT w.pubkey AS public_key, COUNT(*) AS total_catches, MAX(w.won_at) AS last_active_at, ' +
@@ -137,8 +239,10 @@ export default {
           'CASE WHEN SUM(CASE WHEN p.rarity = \'LEGENDARY\' THEN 1 ELSE 0 END) > 0 THEN \'LEGENDARY\' ' +
           'WHEN SUM(CASE WHEN p.rarity = \'EPIC\' THEN 1 ELSE 0 END) > 0 THEN \'EPIC\' ' +
           'WHEN SUM(CASE WHEN p.rarity = \'RARE\' THEN 1 ELSE 0 END) > 0 THEN \'RARE\' ' +
-          'ELSE \'COMMON\' END AS rarest ' +
+          'ELSE \'COMMON\' END AS rarest, ' +
+          'g.github_login, g.avatar_url ' +
           'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'JOIN github_links g ON g.pubkey = w.pubkey ' +
           'GROUP BY w.pubkey ' +
           'ORDER BY total_catches DESC, last_active_at DESC LIMIT ?')
         .bind(limit).all()
@@ -152,8 +256,9 @@ export default {
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 50) || 50, 200)
       const offset = Math.max(Number(url.searchParams.get('offset') ?? 0) || 0, 0)
       const rows = await env.DB.prepare(
-        'SELECT p.mint_id AS card_id, p.name, p.rarity, p.zone, w.won_at AS caught_at ' +
+        'SELECT p.mint_id AS card_id, p.name, p.rarity, p.zone, w.won_at AS caught_at, g.github_login ' +
           'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'LEFT JOIN github_links g ON g.pubkey = w.pubkey ' +
           'ORDER BY w.won_at DESC LIMIT ? OFFSET ?')
         .bind(limit, offset).all()
       return json({ ok: true, value: { catches: rows.results } })
@@ -179,8 +284,9 @@ export default {
           'CASE WHEN SUM(CASE WHEN p.rarity = \'LEGENDARY\' THEN 1 ELSE 0 END) > 0 THEN \'LEGENDARY\' ' +
           'WHEN SUM(CASE WHEN p.rarity = \'EPIC\' THEN 1 ELSE 0 END) > 0 THEN \'EPIC\' ' +
           'WHEN SUM(CASE WHEN p.rarity = \'RARE\' THEN 1 ELSE 0 END) > 0 THEN \'RARE\' ' +
-          'ELSE \'COMMON\' END AS rarest ' +
-          'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id WHERE w.pubkey = ?')
+          'ELSE \'COMMON\' END AS rarest, g.github_login ' +
+          'FROM pow_wins w JOIN pool_cards p ON p.mint_id = w.mint_id ' +
+          'LEFT JOIN github_links g ON g.pubkey = w.pubkey WHERE w.pubkey = ?')
         .bind(key).first()
       if (diver === null) return json({ ok: false, error: 'unknown diver' }, 404)
       const recent = await env.DB.prepare(

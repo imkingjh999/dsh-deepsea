@@ -1,6 +1,6 @@
 {
   "name": "dsh-deepsea",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "DSH plugin: 深海垂钓 —— context 越深钩越沉，答完钓起镭射生物卡 | Deep-sea fishing holo cards",
   "type": "module",
   "license": "MIT",

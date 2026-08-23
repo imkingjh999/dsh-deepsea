@@ -60,6 +60,9 @@ export interface LeaderRow {
   total_catches: number
   rarest: string
   last_active_at: number
+  /** v5: GitHub identity — only linked divers appear on the board. */
+  github_login: string
+  avatar_url?: string
   /** Optional per-rarity catch counts (RARE/EPIC/LEGENDARY) — omitted by
    * older workers; the leaderboard renders a dash when undefined. */
   rare_count?: number
@@ -68,6 +71,24 @@ export interface LeaderRow {
 }
 
 const WORKER = 'https://deepsea.openclawd.qzz.io'
+
+/** This key's GitHub binding: login ('' when unlinked). */
+export async function fetchGithubLink(publicKey: string): Promise<{ login: string, avatarUrl: string }> {
+  try {
+    const res = await fetch(`${WORKER}/api/link?publicKey=${encodeURIComponent(publicKey)}`)
+    const data = JSON.parse(await res.text()) as { ok: boolean, value?: { login?: string, avatarUrl?: string } }
+    if (data.ok !== true) return { login: '', avatarUrl: '' }
+    return { login: data.value?.login ?? '', avatarUrl: data.value?.avatarUrl ?? '' }
+  } catch { return { login: '', avatarUrl: '' } }
+}
+
+/** Signed GitHub-link start URL (host signs with the local identity). */
+export async function fetchAuthStart(): Promise<string> {
+  const res = await fetch('/deepsea/api/authstart')
+  const data = JSON.parse(await res.text()) as { ok: boolean, value?: { url?: string } }
+  if (data.ok !== true || data.value?.url === undefined) throw new Error('authstart failed')
+  return data.value.url
+}
 
 export async function fetchLeaders(limit = 50): Promise<LeaderRow[]> {
   try {

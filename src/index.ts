@@ -279,6 +279,29 @@ export function apply(ctx: HostContext, config?: HostConfig): void {
       return
     }
 
+    if (req.method === 'GET' && method === '/authstart') {
+      // v5 GitHub link: sign the link material with the local identity so
+      // the worker can prove the initiator holds this diver's private key
+      // (nobody can bind someone else's pubkey to their GitHub account).
+      // The worker re-verifies the same flat string at /auth/github/start
+      // AND at the OAuth callback — the message format must stay
+      // byte-stable with cloudflare/src/github-auth.ts linkMessage().
+      try {
+        const identity = await loadIdentity(store.cardDir('..'))
+        const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        const ts = Date.now()
+        const message = `deepsea-github-link:${identity.publicKey}:${nonce}:${ts}`
+        const sig = edSign(null, Buffer.from(message), createPrivateKey(identity.privateKeyPem)).toString('base64')
+        const u = `${workerUrl}/auth/github/start?pubkey=${encodeURIComponent(identity.publicKey)}`
+          + `&nonce=${encodeURIComponent(nonce)}&ts=${String(ts)}&sig=${encodeURIComponent(sig)}`
+        writeJson(res, 200, { ok: true, value: { url: u } })
+      } catch (err) {
+        writeJson(res, 400, { ok: false, error: { code: 'authstart-failed',
+          message: err instanceof Error ? err.message : String(err) } })
+      }
+      return
+    }
+
     if (req.method === 'GET' && method === '/nextcatch') {
       // Remaining catch-cooldown for THIS diver, straight from the worker —
       // lets the client prime its UI on load instead of learning the block

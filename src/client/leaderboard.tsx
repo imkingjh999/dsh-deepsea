@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { fetchLeaders, fetchMe, type LeaderRow } from './api.ts'
+import { fetchLeaders, fetchMe, fetchGithubLink, fetchAuthStart, type LeaderRow } from './api.ts'
 import { tr, isEn } from './locale.ts'
 import { rarityMeta } from './depth.ts'
 
@@ -32,17 +32,31 @@ const btn = {
 export function Leaderboard(props: { onClose: () => void }): ReactNode {
   const [rows, setRows] = useState<LeaderRow[] | null>(null)
   const [me, setMe] = useState('')
+  const [myLogin, setMyLogin] = useState<string | null>(null) // null=unknown, ''=unlinked
   const [failed, setFailed] = useState(false)
 
   const load = (): void => {
-    setRows(null); setFailed(false)
+    setRows(null); setFailed(false); setMyLogin(null)
     void Promise.all([fetchLeaders(50), fetchMe()]).then(([leaders, myKey]) => {
       if (leaders.length === 0) setFailed(true)
       setRows(leaders); setMe(myKey)
+      if (myKey !== '') {
+        void fetchGithubLink(myKey).then((l) => { setMyLogin(l.login); if (l.login !== '') {
+          setRows((prev) => prev) // login known; rows unchanged
+        } })
+      } else {
+        setMyLogin('')
+      }
     }).catch(() => setFailed(true))
   }
 
   useEffect(load, [])
+
+  const startLink = (): void => {
+    void fetchAuthStart().then((url) => { window.open(url, '_blank', 'noopener') }).catch(() => {
+      setMyLogin(myLogin ?? '')
+    })
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') props.onClose() }
@@ -62,6 +76,13 @@ export function Leaderboard(props: { onClose: () => void }): ReactNode {
         <span style={{ fontSize: 12, fontWeight: 800, color: '#cfe6ff', flex: 1, whiteSpace: 'nowrap' }}>
           🏆 {tr('rank.title')}
         </span>
+        {myLogin === null ? null : myLogin === '' ? (
+          <button type="button" aria-label="deepsea-rank-github-login" onClick={startLink} style={btn}>
+            🔗 {tr('rank.login')}
+          </button>
+        ) : (
+          <span style={{ fontSize: 11, color: '#8fd0a0', whiteSpace: 'nowrap' }}>@{myLogin}</span>
+        )}
         <button type="button" aria-label="deepsea-rank-refresh" onClick={load} style={btn}>
           ↻ {tr('rank.refresh')}
         </button>
@@ -110,7 +131,8 @@ export function Leaderboard(props: { onClose: () => void }): ReactNode {
                   >
                     <td style={{ padding: '5px 6px', color: '#7fa6cf' }}>{String(i + 1)}</td>
                     <td style={{ padding: '5px 6px', fontFamily: 'monospace' }}>
-                      {tagOf(row.public_key)}{mine ? ` · ${tr('rank.me')}` : ''}
+                      {row.github_login !== undefined && row.github_login !== '' ? row.github_login : tagOf(
+                        row.public_key)}{mine ? ` · ${tr('rank.me')}` : ''}
                     </td>
                     <td style={{ padding: '5px 6px', fontWeight: 700, textAlign: 'right' }}>
                       {String(row.total_catches)}
