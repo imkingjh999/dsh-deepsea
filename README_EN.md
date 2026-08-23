@@ -7,7 +7,8 @@ the longer your session context, the deeper the claw sinks; every finished AI an
 from that depth, minting a MiniMax-generated holographic collectible card.
 
 ```sh
-dsh plugin --profile web add github:imkingjh999/dsh-deepsea   # (once published)
+dsh plugin --profile web add npm:dsh-deepsea          # npm (recommended)
+dsh plugin --profile web add github:imkingjh999/dsh-deepsea   # GitHub
 # Local dev: add link:~/projects/dsh-plugins/dsh-deepsea to the profile dependencies
 ```
 

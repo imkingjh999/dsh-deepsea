@@ -5,7 +5,8 @@
 **把会话上下文变成一场深海垂爪** —— DeepSeek Harness（DSH）浮窗小游戏：你的对话 context 越长，爪子沉得越深；AI 每答完一轮，就有一只该深度的海洋生物入爪，化作一张 MiniMax 生成的镭射收藏卡。
 
 ```sh
-dsh plugin --profile web add github:imkingjh999/dsh-deepsea   #（发布后）
+dsh plugin --profile web add npm:dsh-deepsea          # npm（推荐）
+dsh plugin --profile web add github:imkingjh999/dsh-deepsea   # GitHub
 # 本地开发：profile dependencies 加 link:~/projects/dsh-plugins/dsh-deepsea
 ```
 
