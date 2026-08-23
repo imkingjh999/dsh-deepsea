@@ -4,7 +4,11 @@ lib/
 .DS_Store
 
 card-assets/
-assets/
+# Local source media (regeneration only) stays out of git — EXCEPT the
+# README preview screenshots, which the plugin-directory listing expects
+# to be hosted in-repo (raw.githubusercontent URLs).
+assets/*
+!assets/screenshots/
 .wrangler/
 .pnpm-store/
 .dsh-vision-toolkit/
