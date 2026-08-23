@@ -1,0 +1,16 @@
+# dsh-deepsea bundle patch: mounts the plugin's host half into the profile
+# layer stack. Optional config row (same id) in the user's profile
+# cordis.patch.yml:
+#
+#   - id: deepsea
+#     config:
+#       minimaxApiKeyEnv: MINIMAX_API_KEY      # env var carrying the MiniMax key
+#       minimaxModel: MiniMax-M3               # text model for card lore
+#       minimaxImageModel: image-01            # card art model
+#       pythonBin: python3                     # interpreter for the holo pipeline
+#       dataDir: ''                            # card store (default ~/.dsh/deepsea)
+#       telemetry: false                       # upload battles by default
+#
+- insert:
+    - id: deepsea
+      name: "dsh-deepsea"

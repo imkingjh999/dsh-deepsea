@@ -1,0 +1,17 @@
+name = "deepsea-leaderboard"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+routes = [
+  { pattern = "deepsea.openclawd.qzz.io", custom_domain = true }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "deepsea-leaderboard"
+database_id = "dbbac349-9282-4ddf-9d5c-ef050d06e1c9"
+
+# Card art / holo / mask PNGs for the pre-minted pool (schema v2).
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "deepsea-cards"

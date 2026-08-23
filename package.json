@@ -1,0 +1,75 @@
+{
+  "name": "dsh-deepsea",
+  "version": "1.0.5",
+  "description": "DSH plugin: 深海垂钓 —— context 越深钩越沉，答完钓起镭射生物卡 | Deep-sea fishing holo cards",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imkingjh999/dsh-deepsea.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "gamification",
+    "context-usage",
+    "minimax"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "docs",
+    "lib",
+    "scripts",
+    "src",
+    "cordis.patch.yml",
+    "dsh.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && tsdown",
+    "bundle": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepare": "tsdown"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@types/node": "^22.20.1",
+    "jsdom": "^29.1.1",
+    "tsdown": "^0.12.7",
+    "vitest": "^3.2.4"
+  },
+  "bugs": {
+    "url": "https://github.com/imkingjh999/dsh-deepsea/issues"
+  },
+  "homepage": "https://github.com/imkingjh999/dsh-deepsea#readme",
+  "author": "imkingjh999",
+  "dependencies": {
+    "dsh-float-window": "^0.4.0"
+  }
+}
