@@ -2,11 +2,17 @@
  * Catch mechanics (split from engine.ts): the claw snap (manual grab),
  * the hands-free auto-catch attempt + wide sweep, the collision bite,
  * and the lane-fraction helper. The engine keeps thin method shells so
- * the instance shape (tests cast-peek lockUntil / closeAt /
+ * the instance shape (tests cast-peek closeAt / reopenAt /
  * autoConnectRate / autoWideGrab) is unchanged; these functions write
- * the engine's internal claw/lock state directly.
+ * the engine's internal claw state directly.
+ *
+ * v50 contract — GUARANTEED CONTACT: whenever the claw visually overlaps
+ * a fish and the player clicks, the grab ALWAYS lands. There is no
+ * contact-layer probability left (no lockUntil cooldown gate, no
+ * dry/wet pity envelope). The only randomness in the whole loop is the
+ * server's dice (pow.ts), exactly as the user asked: 重叠+左键必碰到,
+ * 中不中骰子由服务端概率决定.
  */
-import { zoneIndexOf } from './depth.ts'
 import type { Creature } from './engine.ts'
 import type { OceanEngine } from './engine.ts'
 
@@ -25,10 +31,9 @@ export function laneFracOf(eng: OceanEngine, c: Creature): number {
 }
 
 /** Collision bite: the drifting hook physically touched this creature.
- * Does NOT touch the pity clock (lastCatchAt) or the local lock
- * (lockUntil) — those are owned by the caller via markMiss() /
- * markCatch() so the result branch (card vs. escape) decides whether
- * the player has to wait. */
+ * Starts the reel-up; whether this attempt turns into a card is decided
+ * later by the SERVER's dice (see ocean-flow.ts → runCatchFlow) — the
+ * engine has no say and no local lock either way. */
 export function biteAt(eng: OceanEngine, c: Creature): void {
   eng.caught = c
   eng.caughtFrac = laneFracOf(eng, c)
@@ -61,14 +66,14 @@ export function autoWideGrabOn(eng: OceanEngine): boolean {
  * (2.2× the wet envelope) for the nearest fish around the patrolling
  * claw — the standard ellipse misses too often from random patrol
  * spots (user: "auto-catch never connects"). A failed connect or an
- * empty sweep plays the SAME empty-clap feedback a manual miss gets
- * (v36 removed the sideways glide — both manual and auto misses now
- * clap in place). Gate checks (lockUntil / hook settled) mirror
- * closeClaw(); while locked the attempt stays SILENT (no clap
- * animation — a locked idle claw shouldn't fidget every retry). */
+ * empty sweep plays the SAME empty-clap feedback a manual miss gets.
+ * v50: the local lockUntil gate is gone with the other catch locks —
+ * pacing is the nextAutoAt timer (engine-step) plus the server's
+ * win-only 5-minute gate. Only the still-sinking hook stays silent
+ * (no clap — the claw isn't where it will fish yet). */
 export function autoAttemptOn(eng: OceanEngine): boolean {
   const hookSettled = Math.abs(eng.hookY - eng.hookTargetY) < eng.h * 0.05
-  if (eng.t < eng.lockUntil || !hookSettled) return false
+  if (!hookSettled) return false
   eng.lastGrabAuto = true
   const connected = Math.random() < eng.autoConnectRate
   const swept = connected && autoWideGrabOn(eng)
@@ -80,12 +85,15 @@ export function autoAttemptOn(eng: OceanEngine): boolean {
   return false
 }
 
-/** Snap the claw shut on the nearest creature within the claw radius —
- * the NEW manual catch (replaces the old "manual bite closest of zone"
- * picker). Deterministic: runs the same search as the previous idle
- * auto-catch so the engine still answers "what would have bitten?" in
- * tests. Returns true on a real grab, false on an empty clap (or any
- * gate it short-circuits on). Mirrors closeClaw() verbatim. */
+/** Snap the claw shut on the nearest creature within the claw envelope —
+ * the manual catch. v50 GUARANTEED-CONTACT contract: whenever the claw
+ * visually overlaps a fish, this ALWAYS grabs — there is no cooldown
+ * gate and no dry/wet luck window anymore (user: 爪子和鱼重叠时按左键
+ * 就一定能碰到鱼; whether it becomes a card is the server dice's 1/5 —
+ * 1/2 for a rookie's first 5 minutes). The only short-circuits left are
+ * physical: an unsettled hook (the line is still sinking to its target
+ * depth after a depth change) claps empty, and so does a click that
+ * genuinely misses every fish. */
 export function closeClawOn(eng: OceanEngine): boolean {
   if (eng.state !== 'idle' || eng.w === 0 || eng.pondMode) return false
   // Aim-snap: while manual steering is live the claw EASES toward the
@@ -99,14 +107,12 @@ export function closeClawOn(eng: OceanEngine): boolean {
     m.y = clamp(eng.manualTarget.y, eng.camY + eng.h * 0.05, eng.camY + eng.h * 0.95)
   }
   const hookSettled = Math.abs(eng.hookY - eng.hookTargetY) < eng.h * 0.05
-  // Cooldown OR unsettled hook → flick the claw shut for a beat so the
-  // player sees the click was registered, but never actually grab. The
-  // claw claps in place — no glide (v36 removed the sideways fling that
-  // used to follow every whiff). The cooldown gate reads lockUntil (set
-  // by markMiss/markCatch) so a missed grab clears the gate immediately
-  // — the dry-spell window above is driven by lastCatchAt and is
-  // independent of this lock.
-  if (eng.t < eng.lockUntil || !hookSettled) {
+  // Unsettled hook → flick the claw shut for a beat so the player sees
+  // the click was registered, but never actually grab: the line is still
+  // sinking toward its target depth, so the claw isn't where the player
+  // is aiming yet. This is the ONLY remaining gate — transient physics,
+  // not probability (it clears in ~a second after any depth change).
+  if (!hookSettled) {
     eng.closeAt = eng.t
     eng.reopenAt = eng.t + CLAW_HOLD
     return false
@@ -120,21 +126,16 @@ export function closeClawOn(eng: OceanEngine): boolean {
   for (const c of eng.creatures) {
     if (c.y < vy0 || c.y > vy1) continue
     const dx = c.x - ccx; const dy = c.y - ccy
-    // Same luck window as the old auto-catch: a zone-scaled dry spell
-    // widens the envelope — a grab is guaranteed in ~5min at the surface,
-    // +90s per deeper band.
-    const lw = 210 + zoneIndexOf(eng.occupancy) * 90
-    // Claw-envelope ELLIPSE (v28): the drawn claw spans ±11px splay and
-    // ~16px reach, with sprite fish rendering up to size×3.2 long. The
-    // previous circular radius (≈9–19px) rejected fish the player could
-    // see at the prong tips — edge contact must grab. rx aligns with
-    // splay(11) + slack + fish visual half-width (1.6·size); ry aligns
-    // with the claw-reach offset from the center (≈11px) + bob slack +
-    // fish visual half-height (~1.2·size), tightened vertically so a
-    // fish in the adjacent lane never gets cross-grabbed.
-    const dry = eng.t - eng.lastCatchAt > lw
-    const rx = dry ? 22 + c.size * 1.6 : 12 + c.size * 1.6
-    const ry = dry ? 24 + c.size * 1.2 : 14 + c.size * 1.2
+    // Claw-envelope ELLIPSE (v28, constant since v50): the drawn claw
+    // spans ±11px splay and ~16px reach, with sprite fish rendering up
+    // to size×3.2 long. rx aligns with splay(11) + slack + fish visual
+    // half-width (1.6·size); ry aligns with the claw-reach offset from
+    // the center (≈11px) + bob slack + fish visual half-height
+    // (~1.2·size), tightened vertically so a fish in the adjacent lane
+    // never gets cross-grabbed. Inside this ellipse = visual overlap ⇒
+    // a click ALWAYS grabs (deterministic — no luck window widening).
+    const rx = 12 + c.size * 1.6
+    const ry = 14 + c.size * 1.2
     // Normalized distance — dn < 1 means inside the ellipse, dn
     // monotonically smaller = closer to the visual claw center.
     const dn = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry)
@@ -146,9 +147,8 @@ export function closeClawOn(eng: OceanEngine): boolean {
     return true
   }
   // Empty clap: shut → hold briefly → reopen, so the click reads.
-  // v36 removed the sideways glide (the miss now claps in place — the
-  // user feedback was that the claw visibly "slipping off" read as a
-  // bug, not as feedback).
+  // A genuine miss — no fish under the claw. (v36 removed the sideways
+  // glide; the miss claps in place.)
   eng.closeAt = eng.t
   eng.reopenAt = eng.t + CLAW_HOLD
   return false

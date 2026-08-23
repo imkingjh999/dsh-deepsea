@@ -16,8 +16,34 @@ export const DIFFICULTY = 1
  * matching the hands-free connect rate — user-mandated uniform odds
  * for manual and auto alike). 2^32 mod 5 = 1, so the residue bias is
  * ~2e-8 — effectively exact. Replaces the old nibble-mask rule (bits
- * could only express power-of-two odds). */
+ * could only express power-of-two odds). This is the VETERAN rule —
+ * see WIN_DIVISOR_ROOKIE for a brand-new diver's first minutes. */
 export const WIN_DIVISOR = 5
+/** Rookie retention (v50, user: 前五分钟提高中奖概率提高留存): during a
+ * brand-new diver's first ROOKIE_WINDOW_MS the win divisor drops from
+ * WIN_DIVISOR (5) to this → odds 1/2. The window is stamped SERVER-side
+ * (pow_divers.first_seen_at at the diver's first attempt) so a client
+ * can't re-arm it; existing divers were back-stamped to 1 at migration
+ * and never see it. After one boosted win the regular win-only 5-minute
+ * gate takes over, so the boost's practical effect is "your first card
+ * lands within the first minute or two". */
+export const WIN_DIVISOR_ROOKIE = 2
+/** Rookie window length: 5 minutes from the diver's FIRST attempt. */
+export const ROOKIE_WINDOW_MS = 5 * 60 * 1000
+
+/** True while `now` is inside the diver's rookie window. firstSeenAt
+ * must be a real stamp (> 0) — 0 means "not yet stamped" and is never
+ * rookie (guards a freshly-created row read before its stamp). */
+export function isRookie(firstSeenAt: number, now: number): boolean {
+  return firstSeenAt > 0 && now >= firstSeenAt && now - firstSeenAt < ROOKIE_WINDOW_MS
+}
+
+/** The win divisor that applies to an attempt at `now` — pure so the
+ * drift-gate spec can pin both branches. */
+export function winDivisorFor(firstSeenAt: number, now: number): number {
+  return isRookie(firstSeenAt, now) ? WIN_DIVISOR_ROOKIE : WIN_DIVISOR
+}
+
 /** Per-diver catch cooldown after a WIN ONLY: only a real card mint stamps
  * `last_attempt_at` (escape / duplicate / full / network error leave the
  * row untouched — diver may try again immediately). 5 min, paced to the

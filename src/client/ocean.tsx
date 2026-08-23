@@ -365,12 +365,12 @@ export function OceanApp(props: { sessionsRef: SessionsRef, visible?: boolean })
             engine.pointerTo(e.clientX - rect.left, e.clientY - rect.top)
           }
           // Catch the closeClaw() verdict so we can label an EMPTY clap
-          // during the post-win 5-minute lock. closeClaw() returns false on
-          // an empty grab (or any short-circuited gate); the engine's own
-          // 75s markCatch() lock makes the silent-empty-claw window fall
-          // here while nextAllowedRef is still warm. Fresh session
-          // (nextAllowedRef=0) stays silent — that's the anti-spam dry
-          // spell window, not a cooldown complaint.
+          // during the post-win 5-minute lock. closeClaw() returns false
+          // only on a genuine miss now (v50 guaranteed contact: overlap +
+          // click always grabs, and the grabbed path surfaces the wait via
+          // onCatchStart) — a miss while nextAllowedRef is warm gets the
+          // minutes hint here so the player knows why a grab wouldn't pay
+          // out anyway. Fresh session (nextAllowedRef=0) stays silent.
           const grabbed = engineRef.current?.closeClaw() === true
           if (!grabbed && Date.now() < nextAllowedRef.current) {
             const remainMs = nextAllowedRef.current - Date.now()

@@ -9,8 +9,10 @@
  * per-diver counter), hashes it once, and decides the outcome — the
  * client's own WebCrypto hash is pure reveal theater, never trusted. Win
  * rule: sha256(challenge)'s tail (last 8 hex chars → 32-bit unsigned)
- * must be divisible by WIN_DIVISOR (5) → win odds exactly 1/5, escape
- * 80%, uniform for manual and auto alike. Replaces the old nibble-mask
+ * must be divisible by the diver's win divisor — WIN_DIVISOR (5) →
+ * odds exactly 1/5 for veterans, WIN_DIVISOR_ROOKIE (2) → 1/2 during
+ * a brand-new diver's first 5 minutes (v50 retention boost, stamped
+ * server-side via pow_divers.first_seen_at). Replaces the old nibble-mask
  * rule (which could only express power-of-two odds). DIFFICULTY is no
  * longer the win rule; it is only the tail length used for display and
  * slicing (e.g. `digest.slice(-1)`). Per-diver one-copy-per-card
@@ -20,11 +22,11 @@
 import { sha256Hex } from './chain.ts'
 import {
   releaseIndex, releaseWindowMs,
-  DIFFICULTY, WIN_DIVISOR, ATTEMPT_INTERVAL_MS,
+  DIFFICULTY, WIN_DIVISOR, WIN_DIVISOR_ROOKIE, ATTEMPT_INTERVAL_MS, winDivisorFor,
 } from './pow-core.ts'
 export { releaseIndex } from './pow-core.ts'
 // Race lottery knobs live in pow-core (pure, test-importable).
-export { DIFFICULTY, WIN_DIVISOR, ATTEMPT_INTERVAL_MS } from './pow-core.ts'
+export { DIFFICULTY, WIN_DIVISOR, WIN_DIVISOR_ROOKIE, ATTEMPT_INTERVAL_MS } from './pow-core.ts'
 import { json, poolCardJson, verify } from './index.ts'
 
 interface PoolRow {
@@ -143,15 +145,27 @@ export async function handleAttempt(req: Request, env: { DB: D1Database }): Prom
   // INSERT OR IGNORE keeps the first-touch row lazily initialized.
   await env.DB.prepare('INSERT OR IGNORE INTO pow_divers (pubkey, last_attempt_at) VALUES (?, 0)')
     .bind(publicKey).run()
-  // Read the cooldown stamp first — then bump the per-attempt counter on
-  // every attempt (so the challenge stays fresh) — but only stamp
-  // last_attempt_at when a card is actually minted. A miss (escape /
-  // duplicate / full / network error) does NOT consume the 5-min wait:
-  // the diver may grab again immediately. Gate check is read-then-act so
-  // a race can only delay, not skip, the cooldown.
-  const preRow = await env.DB.prepare('SELECT last_attempt_at FROM pow_divers WHERE pubkey = ?')
-    .bind(publicKey).first<{ last_attempt_at: number | null } | null>()
+  // Read the cooldown stamp AND the rookie stamp first — then bump the
+  // per-attempt counter on every attempt (so the challenge stays fresh)
+  // — but only stamp last_attempt_at when a card is actually minted. A
+  // miss (escape / duplicate / full / network error) does NOT consume
+  // the 5-min wait: the diver may grab again immediately. Gate check is
+  // read-then-act so a race can only delay, not skip, the cooldown.
+  const preRow = await env.DB.prepare(
+    'SELECT last_attempt_at, first_seen_at FROM pow_divers WHERE pubkey = ?'
+  ).bind(publicKey).first<{ last_attempt_at: number | null, first_seen_at: number | null } | null>()
   const last = preRow?.last_attempt_at ?? 0
+  // Rookie window (v50 retention): first_seen_at = 0 means this IS the
+  // diver's first attempt — stamp it now (guarded UPDATE so a concurrent
+  // double-first-attempt converges on one stamp). Existing divers were
+  // back-stamped to 1 by the v4 migration and never qualify.
+  let firstSeen = preRow?.first_seen_at ?? 0
+  if (firstSeen === 0) {
+    await env.DB.prepare(
+      'UPDATE pow_divers SET first_seen_at = ? WHERE pubkey = ? AND first_seen_at = 0'
+    ).bind(now, publicKey).run()
+    firstSeen = now
+  }
   if (last > now - ATTEMPT_INTERVAL_MS) {
     const wait = Math.max(last + ATTEMPT_INTERVAL_MS - now, 0)
     return json({ ok: false, error: 'too-soon', retryAfterMs: wait }, 429)
@@ -171,16 +185,19 @@ export async function handleAttempt(req: Request, env: { DB: D1Database }): Prom
   const challenge = `${rel.target}:${publicKey}:${seq}`
   const digest = await sha256Hex(challenge)
   // Win rule: parse the LAST 8 hex chars (32-bit unsigned int) and check
-  // divisibility by WIN_DIVISOR (5). 2^32 mod 5 = 1 → the residue bias
-  // across the 2^32 hash space is ~2e-8 — effectively exact uniform
-  // 1/5 odds. mode no longer affects odds (kept for the UI's quiet-banner
-  // behavior on auto attempts); manual and auto are uniformly 1/5.
+  // divisibility by the diver's win divisor — WIN_DIVISOR (5) for
+  // veterans and everyone past their rookie window (odds exactly 1/5;
+  // 2^32 mod 5 = 1 → residue bias ~2e-8), WIN_DIVISOR_ROOKIE (2) during
+  // a brand-new diver's first 5 minutes (odds 1/2 — the retention boost,
+  // stamped server-side so it can't be re-armed client-side).
+  const rookie = winDivisorFor(firstSeen, now) === WIN_DIVISOR_ROOKIE
+  const divisor = rookie ? WIN_DIVISOR_ROOKIE : WIN_DIVISOR
   const tail8 = parseInt(digest.slice(-8), 16)
-  const won = Number.isFinite(tail8) && tail8 % WIN_DIVISOR === 0
+  const won = Number.isFinite(tail8) && tail8 % divisor === 0
   if (!won) {
     return json({ ok: true, value: {
       won: false, reason: 'escape', challenge, tail: digest.slice(-DIFFICULTY),
-      targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners,
+      targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners, rookie,
     } })
   }
 
@@ -191,7 +208,7 @@ export async function handleAttempt(req: Request, env: { DB: D1Database }): Prom
   if (owned !== null) {
     return json({ ok: true, value: {
       won: false, reason: 'duplicate', challenge, tail: digest.slice(-DIFFICULTY),
-      targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners,
+      targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners, rookie,
     } })
   }
   // UNCAPPED claim: just bump winners on an unclosed release. The cap
@@ -209,7 +226,7 @@ export async function handleAttempt(req: Request, env: { DB: D1Database }): Prom
     // read and the UPDATE — rare race. Regular path returns above.
     return json({ ok: true, value: {
       won: false, reason: 'full', challenge, tail: digest.slice(-DIFFICULTY),
-      targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners,
+      targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners, rookie,
     } })
   }
   await env.DB.prepare('INSERT INTO pow_wins (pubkey, mint_id, release_id, won_at) VALUES (?, ?, ?, ?)')
@@ -227,7 +244,7 @@ export async function handleAttempt(req: Request, env: { DB: D1Database }): Prom
   if (card === null) return json({ ok: false, error: 'release card missing' }, 500)
   return json({ ok: true, value: {
     won: true, challenge, tail: digest.slice(-DIFFICULTY),
-    targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners + 1,
+    targetTail: rel.target.slice(-DIFFICULTY), winners: rel.winners + 1, rookie,
     // Feed the cooldown down to the client so the UI never has to hard-code
     // a constant that could drift away from the worker's gate.
     retryAfterMs: ATTEMPT_INTERVAL_MS,

@@ -4,8 +4,14 @@
  * claw radius; idle step() never auto-catches (manual-mode contract).
  * Tests that previously relied on "bite picks the closest of the hook
  * zone" now place a specific creature directly on the hook first.
- * Also covers the win/miss gate separation (engine.markMiss /
- * markCatch): the short re-grab lock and the dry/wet envelope branches.
+ *
+ * v50 GUARANTEED CONTACT (user: 爪子和鱼重叠+左键 ⇒ 一定碰到): the local
+ * catch locks (session-start 75s, post-catch 75s, post-miss 8–20s) and
+ * the dry/wet pity envelope are GONE. Overlap + click always grabs;
+ * pacing authority is the server's win-only 5-minute gate. These specs
+ * pin the deterministic contract: immediate grabs at t=0, instant
+ * re-grabs after an escape, and a CONSTANT visual-contact envelope (no
+ * dry-spell widening, no cross-lane overreach).
  *
  * Split from tests/hook-ride.spec.ts; shared fixtures live in
  * tests/helpers/hook-ride-utils.ts.
@@ -46,17 +52,23 @@ describe('claw grab — closeClaw behavior', () => {
     expect(e.clawShut).toBe(0)
   })
 
-  it('closeClaw() during the cooldown is a no-op (no reeling, claw still animates)', () => {
+  it('v50 guaranteed contact: a click at t=0 grabs immediately — no session-start lock', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
-    // No runPastCooldown — staying inside the 75s window.
-    parkCreatureAtHook(e)
-    expect(e.closeClaw()).toBe(false)
-    expect(e.state).toBe('idle')
-    expect(e.caught).toBeNull()
-    // No reeling — but the claw should still animate so the click reads.
-    run(e, 1)
-    expect(e.state).toBe('idle')
+    // NO runPastCooldown — the very first click of a fresh session must
+    // contact. The old 75s session-start lock used to clap empty here,
+    // which from the player's seat read as "clicked right on the fish,
+    // didn't grab" (the user complaint that motivated v50).
+    const c = e.creatures.find((cc) => cc.zone === 0)
+    expect(c).toBeDefined()
+    if (c === undefined) return
+    const hp = e.hookPos()
+    c.x = hp.x; c.y = hp.y + 11 // dead on the claw's judgment center
+    for (const o of e.creatures) if (o !== c) { o.x = -6000; o.y = -6000 }
+    expect(e.t).toBe(0)
+    expect(e.closeClaw()).toBe(true)
+    expect(e.state).toBe('reeling')
+    expect(e.caught).toBe(c)
   })
 
   it('a fish whose edge just touches the prong tip is grabbed (v28 visual-contact ellipse)', () => {
@@ -71,16 +83,14 @@ describe('claw grab — closeClaw behavior', () => {
     for (let i = 0; i < 240; i += 1) { e.pointerTo(200, 140); e.step(1 / 60) }
     const c0 = e.creatures[0]
     if (c0 === undefined) { expect.fail('no creature'); return }
-    c0.size = 10 // deterministic semi-axes: wet rx=28 / ry=26
+    c0.size = 10 // deterministic semi-axes: rx=28 / ry=26
     // v28 visual-contact contract: the claw tip (splay ±11) just touching
     // the fish's far edge (visual half-width 1.6·size = 16) → dx = 27,
-    // dy = 0. WET ellipse dn = (27/28)² ≈ 0.93 < 1 → MUST grab. (The old
-    // circular radius 16+0.75·size = 23.5 < 27 missed exactly this — the
-    // reported "claw touches fish but no grab" bug.)
+    // dy = 0. dn = (27/28)² ≈ 0.93 < 1 → MUST grab. (The old circular
+    // radius 16+0.75·size = 23.5 < 27 missed exactly this — the reported
+    // "claw touches fish but no grab" bug.)
     c0.x = 200 + 27; c0.y = 140 + 11
     for (const c of e.creatures) if (c !== c0) { c.x = -6000; c.y = -6000 }
-    ;(e as unknown as { lockUntil: number, lastCatchAt: number }).lockUntil = 0
-    ;(e as unknown as { lockUntil: number, lastCatchAt: number }).lastCatchAt = e.t - 100
     expect(e.closeClaw()).toBe(true)
     expect(e.caught).toBe(c0)
 
@@ -91,12 +101,10 @@ describe('claw grab — closeClaw behavior', () => {
     const c1 = e2.creatures[0]
     if (c1 === undefined) { expect.fail('no creature'); return }
     c1.size = 10
-    // Outside the WET envelope: dx = 34 > rx=28 → dn = (34/28)² ≈ 1.47 > 1.
+    // Outside the envelope: dx = 34 > rx=28 → dn = (34/28)² ≈ 1.47 > 1.
     c1.x = 200 + 34; c1.y = 140 + 11
     for (const c of e2.creatures) if (c !== c1) { c.x = -6000; c.y = -6000 }
-    ;(e2 as unknown as { lockUntil: number, lastCatchAt: number }).lockUntil = 0
-    ;(e2 as unknown as { lockUntil: number, lastCatchAt: number }).lastCatchAt = e2.t - 100
-    expect(e2.closeClaw()).toBe(false) // outside the wet ellipse — no grab
+    expect(e2.closeClaw()).toBe(false) // outside the ellipse — no grab
   })
 
   it('a fish far below the claw center is not cross-grabbed (vertical overreach guard)', () => {
@@ -108,16 +116,16 @@ describe('claw grab — closeClaw behavior', () => {
     for (let i = 0; i < 240; i += 1) { e.pointerTo(200, 140); e.step(1 / 60) }
     const c = e.creatures[0]
     if (c === undefined) { expect.fail('no creature'); return }
-    c.size = 10 // wet ry = 14 + 12 = 26
+    c.size = 10 // ry = 14 + 12 = 26
     const hp = e.hookPos()
     // Dead-on horizontally, 40px below the judgment center (hp.y+11):
     // dn = (40/26)² ≈ 2.37 > 1. The ellipse is tightened vertically on
     // purpose — a fish in the adjacent depth lane is never cross-grabbed
-    // even though the horizontal splay would cover its x.
+    // even though the horizontal splay would cover its x. v50 keeps this
+    // guard: guaranteed contact means OVERLAP guarantees a grab, not that
+    // everything nearby gets vacuumed up.
     c.x = hp.x; c.y = hp.y + 11 + 40
     for (const o of e.creatures) if (o !== c) { o.x = -6000; o.y = -6000 }
-    ;(e as unknown as { lockUntil: number, lastCatchAt: number }).lockUntil = 0
-    ;(e as unknown as { lockUntil: number, lastCatchAt: number }).lastCatchAt = e.t - 100
     expect(e.closeClaw()).toBe(false)
     expect(e.caught).toBeNull()
   })
@@ -137,7 +145,6 @@ describe('claw grab — closeClaw behavior', () => {
     // drift away, so placement must come after parking) and clear rivals.
     fish.x = 380; fish.y = 300; fish.size = 14
     for (const c of e.creatures) if (c !== fish) { c.x = -6000; c.y = -6000 }
-    ;(e as unknown as { lockUntil: number }).lockUntil = 0
     expect(Math.hypot(parked.x - fish.x, parked.y - fish.y)).toBeGreaterThan(250)
     // Flick the pointer onto the fish and click almost immediately — the
     // eased claw (time constant ~0.3s) is still hundreds of px behind.
@@ -156,7 +163,7 @@ describe('claw grab — closeClaw behavior', () => {
   it('a whiffed grab claps in place (glide removed)', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
-    runPastCooldown(e) // t ≈ 76s, lockUntil=75 → t > lockUntil ✓ hookSettled ✓
+    runPastCooldown(e) // settle the hook + patrol (deterministic parking)
     parkCreaturesFar(e)
     // Pin the claw at a known point and refresh manual hold every frame so
     // the click sees a live manual target (matches v28/v29 park pattern).
@@ -184,29 +191,36 @@ describe('claw grab — closeClaw behavior', () => {
     expect(Math.hypot(p2.x - p0.x, p2.y - p0.y)).toBeLessThan(25)
   })
 
-  it('a cooldown-gated click claps in place (glide removed)', () => {
+  it('a click while the line is still sinking claps empty (the only remaining gate)', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
-    // Deliberately do NOT runPastCooldown — lockUntil=75 blocks closeClaw
-    // at the gate branch before any ellipse search runs.
     parkCreaturesFar(e)
     for (let i = 0; i < 240; i += 1) { e.pointerTo(200, 140); e.step(1 / 60) }
+    // Slam the hook's target depth far away (occupancy 0 → 0.93 world) so
+    // the hook is momentarily UNSETTLED — the one physical gate v50 keeps.
+    e.setDepth(0.93)
     expect(e.closeClaw()).toBe(false)
     expect(e.state).toBe('idle')
-    // Manual steering preserved (v36: the gate branch no longer drops manual).
+    // The clap still fires so the click reads, and manual steering is
+    // preserved (the gate never drops it).
     expect((e as unknown as { manual: unknown }).manual).not.toBeNull()
-    // Clap animation fires on the gate branch too — closeAt is armed and
-    // clawShut ramps non-zero after 0.2s of stepping.
     const peek = e as unknown as { closeAt: number, clawShut: number }
     run(e, 0.2)
     expect(peek.closeAt).toBeGreaterThan(0)
     expect(peek.clawShut).toBeGreaterThan(0)
-    // No glide: 0.5s after the gated click the claw is still parked at the
-    // pointer target (only sway/patrol micro-jitter — well under 25px).
-    const p0 = e.hookPos()
-    run(e, 0.5)
-    const p2 = e.hookPos()
-    expect(Math.hypot(p2.x - p0.x, p2.y - p0.y)).toBeLessThan(25)
+    // …and once the line settles the very next click grabs again — the
+    // gate is transient physics (≈1s), never a wait the player feels.
+    run(e, 4) // line eases to the new depth (rate 1.6/s → converged)
+    const c = e.creatures[0]
+    if (c === undefined) { expect.fail('no creature'); return }
+    c.size = 10
+    const hp = e.hookPos()
+    c.x = hp.x; c.y = hp.y + 11
+    for (const o of e.creatures) if (o !== c) { o.x = -6000; o.y = -6000 }
+    // Refresh the pointer dead-on (viewport = world − camY) so closeClaw()'s
+    // aim-snap judges exactly at the parked fish.
+    e.pointerTo(hp.x, hp.y + 11 - e.camY)
+    expect(e.closeClaw()).toBe(true)
   })
 })
 
@@ -222,98 +236,81 @@ describe('no idle auto-catch (manual-mode contract)', () => {
   })
 })
 
-describe('claw grab — win/miss gate separation (engine.markMiss / markCatch)', () => {
-  /** Drive the engine while bypassing the auto-catch: stay in idle until
-   * the test explicitly calls bite()/closeClaw(). Mirrors the gating the
-   * React layer uses (busyRef + nextAllowedRef) at a smaller scale. */
-  function reopen(e: OceanEngine): void {
-    ;(e as unknown as { lockUntil: number }).lockUntil = 0
-  }
-
-  it('markMiss() arms a short random re-grab lock (8–20s) — no instant re-grab spam', () => {
+describe('v50 guaranteed contact — no local locks, constant envelope', () => {
+  it('an escaped fish can be re-grabbed IMMEDIATELY — the post-miss lock is gone', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
     runPastCooldown(e)
-    // First grab: park, bite, reel → raised (same shape as the React flow).
+    // First grab → reel → raised (same shape as the React flow).
     parkCreatureAtHook(e)
     expect(e.closeClaw()).toBe(true)
     expect(e.state).toBe('reeling')
     run(e, 3) // ~3s → raised
     expect(e.state).toBe('raised')
-    // Card-flow contract: the FIRST attempt won a card → markCatch() arms
-    // the short local lock (lockUntil = t + 75). Mirror the ocean.tsx call
-    // order, then let the finally-clause resume() reset the catch state.
-    e.markCatch()
-    e.resume() // mirrors the finally clause in ocean.tsx onCatchStart
+    // The attempt ESCAPED (no card minted): resume() resets the catch
+    // state. Under the old contract markMiss() then armed an 8–20s
+    // re-grab lock; v50 removes it — the server's miss rule (a miss never
+    // consumes the 5-min wait) IS the pacing, so the next overlap+click
+    // must grab right away, zero seconds later.
+    e.resume()
     expect(e.state).toBe('idle')
     expect(e.caught).toBeNull()
-    // The very next attempt ESCAPED (no card minted): markMiss() must arm
-    // a SHORT random re-grab lock so a wriggled fish can't be re-grabbed
-    // instantly — the user-flagged "escape→re-grab→escape" spam loop.
-    parkCreatureAtHook(e)
-    const armed = e.t < e.t + 75 // (documentation: gate IS armed by markCatch)
-    expect(armed).toBe(true)
-    e.markMiss()
-    // Immediately after markMiss the gate is hot (8–20s → 0 at t+0): next
-    // closeClaw is blocked even with a creature inside the ellipse.
-    expect(e.closeClaw()).toBe(false)
-    expect(e.state).toBe('idle')
-    // 21s is past the LONGEST possible 20s lock, so the gate releases.
-    // autoCatch defaults to false so step() never fires an unintended grab;
-    // hookSettled holds because hookY has long since converged on hookTargetY.
-    run(e, 21)
     parkCreatureAtHook(e)
     expect(e.closeClaw()).toBe(true)
     expect(e.state).toBe('reeling')
   })
 
-  it('markCatch() advances the dry-spell window — envelope shrinks from dry rx=38/ry=36 to wet rx=28/ry=26', () => {
+  it('a grab right after a WIN also lands immediately — the post-catch lock is gone', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
-    // Run past the dry-spell boundary (zone-0 lw = 210s). No catch fires.
+    runPastCooldown(e)
+    parkCreatureAtHook(e)
+    expect(e.closeClaw()).toBe(true)
+    run(e, 3) // raised
+    e.resume()
+    // Server answered "won" ⇒ the React layer would hold nextAllowedRef
+    // for 5 minutes (too-soon banner), but the ENGINE no longer locks:
+    // the player can still physically grab fish; the server decides what
+    // the grab yields.
+    parkCreatureAtHook(e)
+    expect(e.closeClaw()).toBe(true)
+    expect(e.state).toBe('reeling')
+  })
+
+  it('the envelope is CONSTANT — no dry-spell widening after 250s without a catch', () => {
+    const e = new OceanEngine()
+    e.resize(400, 600, 1)
+    // Run past the OLD dry-spell boundary (zone-0 window was 210s). v50
+    // removed the pity widening: the same visual-contact ellipse applies
+    // forever, so a fish inside the old DRY ellipse but outside the
+    // contact ellipse must MISS no matter how long the dry spell runs.
     run(e, 250)
     expect(e.t).toBeGreaterThan(210)
-    // Place a size-10 creature inside the DRY ellipse but outside the WET
-    // one: dx = 32, dy = 7 → dry dn = (32/38)²+(7/36)² ≈ 0.75 < 1 (grab);
-    // wet dn = (32/28)²+(7/26)² ≈ 1.38 > 1 (miss). The asymmetry between
-    // the two branches is what markCatch() resets.
     const c = e.creatures.find((cc) => cc.zone === 0)
     if (c === undefined) { expect.fail('no zone-0 creature'); return }
     c.size = 10
     const hp = e.hookPos()
+    // dx = 32, dy = 7 → dn = (32/28)²+(7/26)² ≈ 1.38 > 1 (outside).
+    // (Under the old DRY branch rx=38/ry=36 this grabbed ≈0.75 < 1.)
     c.x = hp.x + 32; c.y = hp.y + 18
     for (const x of e.creatures) if (x !== c) { x.x = -6000; x.y = -6000 }
-    // Pre-markCatch: t - lastCatchAt = 250 > 210 → DRY branch (rx=38/ry=36).
-    reopen(e)
-    expect(e.closeClaw()).toBe(true) // inside dry ellipse — caught
-    expect(e.caught).toBe(c)
-  })
-
-  it('markCatch() commits the pity clock — same scenario now misses under the wet envelope', () => {
-    const e = new OceanEngine()
-    e.resize(400, 600, 1)
-    // Pin lastCatchAt = t (pity clock freshly reset) WITHOUT engaging the
-    // 75s local lock — the test is about the ENVELOPE branch, not the gate.
-    run(e, 250)
-    reopen(e)
-    e.markCatch() // lastCatchAt = e.t; lockUntil = e.t + 75
-    reopen(e) // override the local lock the test doesn't care about
-    const c = e.creatures.find((cc) => cc.zone === 0)
-    if (c === undefined) { expect.fail('no zone-0 creature'); return }
-    c.size = 10
-    const hp = e.hookPos()
-    // Same geometry as the dry-branch test — now WET (rx=28/ry=26).
-    c.x = hp.x + 32; c.y = hp.y + 18
-    for (const x of e.creatures) if (x !== c) { x.x = -6000; x.y = -6000 }
-    // Post-markCatch: t - lastCatchAt = 0 < 210 → WET branch.
-    expect(e.closeClaw()).toBe(false) // wet dn ≈ 1.38 > 1 — same fish misses
+    expect(e.closeClaw()).toBe(false) // no luck window — same ellipse
     expect(e.caught).toBeNull()
+    // And the contact ellipse itself still grabs dead-center after the
+    // same 250s dry spell — determinism both ways.
+    const c2 = e.creatures.find((cc) => cc.zone === 0)
+    if (c2 === undefined) { expect.fail('no zone-0 creature'); return }
+    c2.size = 10
+    const hp2 = e.hookPos()
+    c2.x = hp2.x; c2.y = hp2.y + 11
+    for (const x of e.creatures) if (x !== c2) { x.x = -6000; x.y = -6000 }
+    expect(e.closeClaw()).toBe(true)
   })
 
-  it('a hard-attachment row (caught fish) does not bend the 75s gate when missed', () => {
+  it('a hard-attachment row (caught fish) survives a missed outcome until resume()', () => {
     // After a hard-attachment (raised) the engine is in "reeling/raised"
-    // until resume(). A markMiss() should drop lockUntil to 0 but leave
-    // caught/state alone — the consumer (React) drives resume().
+    // until resume(). The consumer (React) drives resume(); until then the
+    // caught fish keeps riding the hook and closeClaw is gated by state.
     const e = new OceanEngine()
     e.resize(400, 600, 1)
     runPastCooldown(e)
@@ -322,12 +319,11 @@ describe('claw grab — win/miss gate separation (engine.markMiss / markCatch)',
     run(e, 3) // raised
     expect(e.state).toBe('raised')
     expect(e.caught).not.toBeNull()
-    e.markMiss()
-    // markMiss only clears lockUntil; the fish still rides the hook until
-    // resume() runs. Verify gate reopened and caught is preserved.
-    reopen(e) // sanity: gate is < t
-    expect((e as unknown as { lockUntil: number }).lockUntil).toBe(0)
-    expect(e.caught).not.toBeNull()
+    // Mid-flow a click must NOT start a second grab — the busy state
+    // (reeling/raised) is the guard now that the time locks are gone.
+    parkCreatureAtHook(e) // (park is a no-op on the caught rider — it finds another zone-0 fish)
+    expect(e.closeClaw()).toBe(false)
+    expect(e.state).toBe('raised')
     e.resume()
     expect(e.state).toBe('idle')
     expect(e.caught).toBeNull()

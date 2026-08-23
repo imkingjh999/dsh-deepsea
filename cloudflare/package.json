@@ -6,6 +6,7 @@
     "db:init": "wrangler d1 execute deepsea-leaderboard --remote --file=schema.sql",
     "db:v2": "wrangler d1 execute deepsea-leaderboard --remote --file=schema-v2.sql",
     "db:v3": "wrangler d1 execute deepsea-leaderboard --remote --file=schema-v3.sql",
+    "db:v4": "wrangler d1 execute deepsea-leaderboard --remote --file=schema-v4.sql",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

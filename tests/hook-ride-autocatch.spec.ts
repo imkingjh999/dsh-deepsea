@@ -2,9 +2,11 @@
  * Idle auto-catch: the hands-free drip when the claw is unsteered.
  * enableAutoCatch() arms a timer that snaps the claw on its own (with a
  * wider search envelope than the manual grab); a failed connect roll
- * plays the same in-place whiff clap a manual miss gets, and a locked
- * claw stays silent. Auto-catch stays off until enabled and never
- * fires while the claw is steered.
+ * plays the same in-place whiff clap a manual miss gets, and an attempt
+ * while the line is still sinking stays silent (v50: the lockUntil gate
+ * is gone — the unsettled-hook check is the only silent short-circuit
+ * left). Auto-catch stays off until enabled and never fires while the
+ * claw is steered.
  *
  * Split from tests/hook-ride.spec.ts; shared fixtures live in
  * tests/helpers/hook-ride-utils.ts.
@@ -131,7 +133,7 @@ describe('idle auto-catch (hands-free drip when the claw is unsteered)', () => {
     expect(e.clawShut).toBe(1)
   })
 
-  it('a failed connect roll plays the whiff feedback (rate=0) and a locked claw stays silent', () => {
+  it('a failed connect roll plays the whiff feedback (rate=0) and a sinking line stays silent', () => {
     // autoConnectRate is a FIELD — pin it to 0 so the connect roll ALWAYS
     // fails: the attempt must play the SAME empty-clap feedback a manual
     // miss gets (closeAt armed, state stays idle). v36 removed the
@@ -159,16 +161,19 @@ describe('idle auto-catch (hands-free drip when the claw is unsteered)', () => {
     expect(peek.closeAt).toBeGreaterThan(0)
     expect(peek.clawShut).toBeGreaterThan(0)
 
-    // Locked-claw branch: while lockUntil is armed the attempt stays
-    // SILENT — no clap animation at all (a locked idle claw shouldn't
-    // fidget every retry).
+    // Sinking-line branch (v50 replacement for the old locked-claw case):
+    // while the line is still easing to a new target depth the attempt
+    // stays SILENT — no clap animation at all (the claw isn't where it
+    // will fish yet, so a clap would read as a phantom miss). The old
+    // lockUntil gate is gone; this physical check is the only silent
+    // short-circuit left.
     const e2 = new OceanEngine()
     e2.resize(400, 600, 1)
     e2.enableAutoCatch()
     ;(e2 as unknown as { nextAutoAt: number }).nextAutoAt = e2.t + 0.5
-    e2.markCatch() // arms lockUntil = t + 75
+    e2.setDepth(0.93) // hookTargetY jumps ~2100px → line is sinking
     const peek2 = e2 as unknown as { closeAt: number, reopenAt: number, clawShut: number }
-    run(e2, 1)
+    run(e2, 1) // the 0.5s attempt fires mid-sink (diff still ≈ 420px)
     expect(e2.state).toBe('idle')
     expect(peek2.closeAt).toBe(0)
     expect(peek2.clawShut).toBe(0)

@@ -210,9 +210,11 @@ export async function runCatchFlow(opts: {
       setRollInfo(null)
     }
     if (result.escaped || result.card === undefined) {
-      // Server rejected this attempt — release the local grab gate so
-      // the next click can fire immediately (no card minted ⇒ no wait).
-      engine.markMiss()
+      // Server rejected this attempt (lost the dice) — with the v50
+      // guaranteed-contact contract there is no local re-grab lock to
+      // release: the next overlap+click grabs again immediately, which
+      // is exactly what the server's miss-doesn't-consume-the-wait rule
+      // intends.
       // Pick the wriggle flavor BEFORE setStatus — reading it from
       // render-time would re-roll on every re-render.
       setWrigFlavor(pickFlavor(tr('hud.wrigpool')))
@@ -220,14 +222,13 @@ export async function runCatchFlow(opts: {
       setTimeout(() => setStatus('idle'), BANNER_LINGER_MS)
       return
     }
-    // "抓到了" — a card was actually minted: arms the local cooldown,
-    // primes the too-soon hint, and shows the celebratory beat before
-    // the reveal. Only path that touches nextAllowedRef.
-    engine.markCatch()
-    // Server-side 5-minute per-diver gate (win-only) — keep locally so
-    // the next bite shows the hint instead of the "generating card"
-    // tease. Pull the canonical cooldown from the worker's win response
-    // (currently 5min) — never hard-code on the client side.
+    // "抓到了" — a card was actually minted: the server's win-only
+    // 5-minute gate (echoed in retryAfterMs) is now the ONLY cooldown;
+    // the old local 75s lock is gone (guaranteed-contact contract).
+    // Keep the too-soon hint primed so the next bite shows the wait
+    // instead of the "generating card" tease. Pull the canonical
+    // cooldown from the worker's win response (currently 5min) — never
+    // hard-code on the client side.
     const cooldownMs = result.retryAfterMs ?? 300000
     nextAllowedRef.current = Date.now() + cooldownMs
     setStatus('grabbed')
@@ -238,9 +239,8 @@ export async function runCatchFlow(opts: {
       setStatus('idle')
     }, GRAB_BEAT_MS)
   } catch {
-    // Network failure (no card minted) — release the grab gate so the
-    // player can retry right away.
-    engine.markMiss()
+    // Network failure (no card minted) — nothing to release under the
+    // guaranteed-contact contract; the player can retry right away.
     setStatus('fail')
     setTimeout(() => setStatus('idle'), BANNER_LINGER_MS)
   } finally {

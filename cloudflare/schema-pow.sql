@@ -3,7 +3,11 @@ CREATE TABLE IF NOT EXISTS pow_divers (
   pubkey TEXT PRIMARY KEY,
   last_attempt_at INTEGER NOT NULL DEFAULT 0,
   attempt_seq INTEGER NOT NULL DEFAULT 0,
-  wins INTEGER NOT NULL DEFAULT 0
+  wins INTEGER NOT NULL DEFAULT 0,
+  -- v4 rookie retention: stamped at the diver's FIRST attempt; the first
+  -- 5 minutes carry boosted win odds. 0 = not yet stamped (existing
+  -- diver rows get back-stamped to 1 by schema-v4.sql, never rookies).
+  first_seen_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS releases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

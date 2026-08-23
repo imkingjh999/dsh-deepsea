@@ -181,23 +181,15 @@ export class OceanEngine {
   /* -- idle roaming: the hook patrols the WHOLE panel (see roam.ts) ----- */
   /** internal: (engine-step) the shared patrol driver. */
   readonly roam = new Roam()
-  /** Seconds between collision-triggered catches (busy gate aside). */
-  private static readonly CATCH_COOLDOWN = 75
-  /** internal: (engine-catch) session-start cooldown clock. Catches are
-    * impossible until the engine has been alive for CATCH_COOLDOWN
-    * seconds — a fresh page load must NOT insta-catch (the dry-spell
-    * luck window also counts from session start, not from -Infinity).
-    * Initialized to 0 so closeClaw() reads the session-start gate from
-    * lockUntil alone. */
-  lastCatchAt = 0
-  /** internal: (engine-catch) short local lock gated by markMiss/markCatch
-    * — separate from the dry-spell clock (lastCatchAt). A miss immediately
-    * resets this so the player can re-grab right away; a catch arms it for
-    * CATCH_COOLDOWN seconds so the post-catch world isn't insta-spammable.
-    * Seeded to CATCH_COOLDOWN so the very first closeClaw() at t=0 is
-    * blocked (the legacy "no instant catch on refresh" behavior). */
-  lockUntil = OceanEngine.CATCH_COOLDOWN
-
+  /* v50: the local catch locks are GONE. The session-start lock, the
+   * post-catch cooldown and the post-miss re-grab lock all used to gate
+   * closeClaw() — from the player's seat that read as "I clicked right
+   * on the fish and it didn't grab" (user: 碰到鱼的概率太低). Contact is
+   * now deterministic: claw overlapping a fish + click ⇒ always a grab.
+   * Pacing authority lives entirely server-side — the worker's win-only
+   * 5-minute gate already rejects post-win attempts (too-soon), and a
+   * miss never consumed the server wait by design, so the local locks
+   * only ever fought that contract. */
   /* -- manual hook control (user pointer steering) ---------------------- *
     * While the pointer moved recently (MANUAL_HOLD seconds), the hook
     * follows it instead of the autonomous patrol. All positions are WORLD
@@ -423,22 +415,6 @@ export class OceanEngine {
     * (autoWideGrabOn). */
   autoWideGrab(): boolean {
     return autoWideGrabOn(this)
-  }
-
-  /** Miss outcome (no card generated): arm a SHORT RANDOM re-grab lock
-    * (8–20s) so a wriggled fish can't be re-grabbed instantly — the
-    * escape→re-grab→escape spam loop reads as "always catchable" (user
-    * feedback). The pity clock (lastCatchAt) is untouched so consecutive
-    * misses keep widening the dry-spell radius. Network failures share
-    * this lock (same anti-spam rationale). */
-  markMiss(): void { this.lockUntil = this.t + 8 + Math.random() * 12 }
-
-  /** Success outcome (a card was minted): advance the pity clock so the
-    * dry-spell radius resets, and re-arm the short local lock for
-    * CATCH_COOLDOWN seconds so post-catch spamming is impossible. */
-  markCatch(): void {
-    this.lastCatchAt = this.t
-    this.lockUntil = this.t + OceanEngine.CATCH_COOLDOWN
   }
 
   resume(): void {

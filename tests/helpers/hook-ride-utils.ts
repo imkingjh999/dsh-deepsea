@@ -12,7 +12,10 @@ export function run(e: OceanEngine, secs: number): void {
   for (let i = 0; i < Math.round(secs * 60); i += 1) e.step(1 / 60)
 }
 
-/** CATCH_COOLDOWN is 75s; step just past it so bite() is allowed. */
+/** Step the engine for 76s — long enough to fully settle the hook, the
+ * patrol and the camera after mount. (v50: no longer about a cooldown —
+ * the catch locks are gone and closeClaw works from t=0; this just
+ * leaves the engine in a steady, deterministic state.) */
 export function runPastCooldown(e: OceanEngine): void {
   run(e, 76)
 }

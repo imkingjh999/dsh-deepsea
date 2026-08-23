@@ -3,9 +3,10 @@
  * hook (hard attachment in the raised state), and the post-catch
  * replacement fish returns to the caught fish's depth LANE — the
  * stratified spread never drifts into same-plane clumps, even under
- * back-to-back catching. Also locks the session-start cooldown: a fresh
- * engine must NOT catch instantly on load (the hook settles and the
- * cooldown counts from t=0).
+ * back-to-back catching. Also pins the v50 guaranteed-contact contract:
+ * a fresh engine grabs on the VERY FIRST click (the old 75s
+ * session-start lock is gone — what a grab yields is the server dice's
+ * business).
  *
  * Split from tests/hook-ride.spec.ts. Manual claw-grab tests live in
  * hook-ride-claw.spec.ts, idle auto-catch in hook-ride-autocatch.spec.ts;
@@ -15,26 +16,28 @@ import { describe, expect, it } from 'vitest'
 import { OceanEngine } from '../src/client/engine.ts'
 import { parkCreatureAtHook, run, runPastCooldown } from './helpers/hook-ride-utils.ts'
 
-describe('session-start cooldown (no instant catch on refresh)', () => {
-  it('a fresh engine refuses bites until the cooldown elapses', () => {
+describe('v50 guaranteed contact (session-start lock removed)', () => {
+  it('a fresh engine grabs on the very first click — overlap + click always contacts', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
     parkCreatureAtHook(e)
-    // t=0: manual bite blocked (this is the "一刷新就钓到鱼" bug).
-    expect(e.bite()).toBe(false)
-    run(e, 10)
-    parkCreatureAtHook(e)
-    expect(e.bite()).toBe(false)
-    runPastCooldown(e)
-    parkCreatureAtHook(e)
+    // The old 75s session-start lock used to refuse this (the legacy
+    // "no instant catch on refresh" rule); from the player's seat that
+    // read as "clicked right on the fish, didn't grab". v50: contact is
+    // deterministic from t=0 — pacing is the server's win-only gate.
+    // (parkCreatureAtHook eases the hook onto the fish first; the t
+    // bound is the OLD lock boundary — the grab lands well inside it.)
+    expect(e.t).toBeLessThan(75)
     expect(e.bite()).toBe(true)
+    expect(e.state).toBe('reeling')
+    expect(e.caught).not.toBeNull()
   })
 
   it('idle stepping never auto-catches (the old collision sniff is gone)', () => {
     const e = new OceanEngine()
     e.resize(400, 600, 1)
-    // Park a creature ON the hook, then step well past the cooldown: no
-    // catch should fire — the player must click to grab now.
+    // Park a creature ON the hook, then step for 200s: no catch should
+    // fire — the player must click to grab now.
     parkCreatureAtHook(e)
     run(e, 200)
     expect(e.state).toBe('idle')
@@ -123,7 +126,7 @@ describe('replacement fish keeps the stratified lane', () => {
     // for the single target we kept catching.
     const initialZone0 = e.creatures.filter((c) => c.zone === 0).length
     for (let cycle = 0; cycle < 6; cycle += 1) {
-      run(e, 76) // past the cooldown
+      run(e, 76) // spacing between cycles (v50: no cooldown — just time)
       parkCreatureAtHook(e)
       if (e.state === 'idle') e.bite()
       if (e.state === 'reeling') run(e, 3)
