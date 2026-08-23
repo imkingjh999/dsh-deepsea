@@ -6,6 +6,11 @@ routes = [
   { pattern = "deepsea.openclawd.qzz.io", custom_domain = true }
 ]
 
+[vars]
+# GitHub OAuth App "deepsea-leaderboard" (imkingjh999) — public client id;
+# the matching secret lives in Worker secrets (GITHUB_CLIENT_SECRET).
+GITHUB_CLIENT_ID = "Ov23liat9pMpYxLdiuaO"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "deepsea-leaderboard"
