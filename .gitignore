@@ -4,6 +4,7 @@ lib/
 .DS_Store
 
 card-assets/
+assets/
 .wrangler/
 .pnpm-store/
 .dsh-vision-toolkit/
