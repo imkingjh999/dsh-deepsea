@@ -1,14 +1,14 @@
-# dsh-deepsea · 深海垂爪
+# dsh-deepsea · 深海摸鱼
 
 [English](README_EN.md) | 中文
 
-**把会话上下文变成一场深海垂爪** —— DeepSeek Harness（DSH）浮窗小游戏：你的对话 context 越长，爪子沉得越深；AI 每答完一轮，就有一只该深度的海洋生物入爪，化作一张 MiniMax 生成的镭射收藏卡。
+**把会话上下文变成一场深海摸鱼** —— DeepSeek Harness（DSH）浮窗小游戏：你的对话 context 越长，摸鱼手沉得越深；AI 每答完一轮，就有一条该深度的海洋生物入手，化作一张 MiniMax 生成的镭射收藏卡——上班摸鱼，摸出收藏。
 
 ## 预览
 
-| 海洋垂钓 | 卡墙收藏 | 鱼池养成 |
+| 海洋摸鱼 | 卡墙收藏 | 鱼池养成 |
 |:---:|:---:|:---:|
-| ![海洋垂钓](assets/screenshots/deepsea-ocean.png) | ![卡墙](assets/screenshots/deepsea-wall.png) | ![鱼池](assets/screenshots/deepsea-pond.png) |
+| ![海洋摸鱼](assets/screenshots/deepsea-ocean.png) | ![卡墙](assets/screenshots/deepsea-wall.png) | ![鱼池](assets/screenshots/deepsea-pond.png) |
 
 ```sh
 dsh plugin --profile web add npm:dsh-deepsea          # npm（推荐）
@@ -24,8 +24,8 @@ dsh plugin --profile web add github:imkingjh999/dsh-deepsea   # GitHub
 |------|------|
 | **深度即占用率** | 钩深实时映射当前会话 `contextPressure`（projectedTokens / contextWindow），HUD 显示深度百分比与 tokens |
 | **四个水层 × 五大洋** | 透光带 → 暮光带 → 午夜带 → 深渊带，海洋纵深为四个屏高，镜头随钩下沉、水体连续变暗；太平洋 / 大西洋 / 印度洋 / 北冰洋 / 南大洋一键切换，各有独立生物池、水体色与 BGM；越深的生物越「深海」：珊瑚鱼 → 银斧鱼 → 蝰鱼/发光鱿鱼 → 鮟鱇/吞噬鳗/小飞象章鱼 |
-| **手动爪 + 必接触** | 爪子跟随鼠标，左键收爪；爪子与鱼重叠时点击**必定碰到**——中不中卡交给服务端骰子（1/5，新潜水员前 5 分钟 1/2 新手运势），中卡后 5 分钟冷却也是服务端裁决 |
-| **掷骰剧场** | 碰到鱼后先「掷骰」：挑战串哈希尾号与目标比对的全屏剧场（快滚 900ms → 慢滚 500ms → 结果定格），中骰 mint 卡、不中鱼挣脱 |
+| **手动摸鱼 + 必接触** | 摸鱼手跟随鼠标，左键出手；手与鱼重叠时点击**必定摸到**——中不中卡交给服务端骰子（1/5，新潜水员前 5 分钟 1/2 新手运势），中卡后 5 分钟冷却也是服务端裁决 |
+| **掷骰剧场** | 摸到鱼后先「掷骰」：挑战串哈希尾号与目标比对的全屏剧场（快滚 900ms → 慢滚 500ms → 结果定格），中骰 mint 卡、不中鱼挣脱 |
 | **水浒 108 将卡池** | 三十六天罡 + 七十二地煞深海具象化：天罡前 10 席传说、11-36 席史诗、地煞前 36 席稀有、后 36 席普通；卡名如「浪里白条·张顺」，108 星宿角标（如「天魁星」） |
 | **镭射卡** | MiniMax M3 写生物志 + image-01 出卡图；Python 为每张卡烘焙「衍射纹理 + 椭圆遮罩」双层装饰，浏览器端用 CSS 混合模式 + 鼠标物理倾斜还原随光流转的镭射质感；SSR 金箔呼吸光晕、UR 彩虹锥形流光 |
 | **卡墙** | 浮窗内多行静态网格（纵向滚动）；悬停单卡播黑屏入场动画；点击弹出大卡 |
@@ -56,7 +56,7 @@ profile 的 `cordis.patch.yml`：
 
 - **宿主半**（`src/index.ts`）：`POST /deepsea/api/catch`（稀有度抽取 → M3 文案 → image-01 出图 → `scripts/holo.py` 烘焙 → 落盘）、
   `GET /deepsea/api/cards`、`POST /deepsea/api/upload`（Ed25519 中继）、`GET /deepsea/assets/*`。全部路由过 browser-trust fence。
-- **client 半**（`src/client/`）：`shell.tsx` 浮窗外壳；`ocean.tsx` Canvas 海洋引擎（纵深四屏水体、镜头随钩下沉 / 程序化生物 / 上抓动画）；
+- **client 半**（`src/client/`）：`shell.tsx` 浮窗外壳；`ocean.tsx` Canvas 海洋引擎（纵深四屏水体、镜头随钩下沉 / 程序化生物 / 摸鱼收获动画）；
   `cards.tsx` 镭射卡 + 卡墙 + 大卡弹窗；`depth.ts` 深度词汇表。经 `ctx.sessions` 读 `contextPressure` / `running`
   （`sessions.list` 只订阅一次、仅换会话时重绑，避免通知回调里重复订阅死循环）。
 - **云端**（`cloudflare/`）：Worker + D1（`pow_wins` 服务端裁决账本、`releases` 发卡窗口、`github_links` 身份绑定），PoW 掷骰裁决、Ed25519 验签、win-only 5 分钟冷却、新手 5 分钟运势窗口；`wrangler deploy` 一条命令部署。

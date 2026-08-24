@@ -69,6 +69,14 @@ export function CardFace(props: { card: CardRecord, width: number, onClick?: () 
   const legendary = rarity === 'LEGENDARY'
   const epic = rarity === 'EPIC'
   const gold = props.card.gold === true
+  const starFs = Math.max(9, Math.round(w * 0.045))
+  const starTop = Math.max(4, Math.round(w * 0.035))
+  /* v51: the ★ chip's outer height with the explicit 1.5 line-height below
+   * (fs×1.5 + 2×1px padding + 2×1px border). The old flat max(14, w·0.085)
+   * reserve underestimated the chip across the whole wall range (96–170px
+   * pins the font at its 9px floor → real chip ≈17px, reserve 14px), so the
+   * seat badge overlapped the ★ chip (user: 星和下方数字两个框重叠). */
+  const starChipH = Math.round(starFs * 1.5) + 4
 
   return (
     <div
@@ -157,8 +165,8 @@ export function CardFace(props: { card: CardRecord, width: number, onClick?: () 
       )}
       {star !== '' && (
         <span title={'一百单八星 第' + starRank + '位'} style={{
-          position: 'absolute', top: Math.max(4, Math.round(w * 0.035)), left: Math.max(4, Math.round(w * 0.05)),
-          fontSize: Math.max(9, Math.round(w * 0.045)), fontWeight: 700, letterSpacing: 1,
+          position: 'absolute', top: starTop, left: Math.max(4, Math.round(w * 0.05)),
+          fontSize: starFs, lineHeight: 1.5, fontWeight: 700, letterSpacing: 1,
           color: legendary ? '#ffe3a3' : '#cfe6ff', textShadow: '0 1px 5px rgba(0,0,0,.9)',
           background: 'rgba(2,8,18,.55)', padding: '1px 7px', borderRadius: 999,
           border: '1px solid rgba(190,220,255,.28)', pointerEvents: 'none',
@@ -166,14 +174,13 @@ export function CardFace(props: { card: CardRecord, width: number, onClick?: () 
       )}
       {/* 108-seat number badge — independent of the star chip above. Helps the
        * diver find the seat on the album wall without hovering (the title
-       * tooltip is the only other place this is exposed). Sits flush under
-       * the ★ chip at the same left; if no star chip, takes its top slot. */}
+       * tooltip is the only other place this is exposed). Sits one 3px gap
+       * below the ★ chip's real bottom (starChipH); if no star chip, takes
+       * its top slot. */}
       {starRank >= 1 && starRank <= 108 && (
         <span title={'一百单八星 第' + starRank + '位'} style={{
           position: 'absolute',
-          top: star !== ''
-            ? Math.max(4, Math.round(w * 0.035)) + Math.max(14, Math.round(w * 0.085))
-            : Math.max(4, Math.round(w * 0.035)),
+          top: star !== '' ? starTop + starChipH + 3 : starTop,
           left: Math.max(4, Math.round(w * 0.05)),
           background: 'rgba(4,10,20,.85)',
           color: '#9fc4e8',

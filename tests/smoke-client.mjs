@@ -64,7 +64,7 @@ await act(async () => { await new Promise((r) => setTimeout(r, 120)) })
 const host = document.querySelector('[data-dsh-deepsea]')
 if (host === null) throw new Error('floating window host not mounted')
 const html = document.body.textContent ?? ''
-if (!html.includes('深海垂爪')) throw new Error('shell title missing')
+if (!html.includes('深海摸鱼')) throw new Error('shell title missing')
 if (document.querySelector('canvas') === null) throw new Error('ocean canvas missing')
 if (!html.includes('暂无上下文数据') && !html.includes('no context data')) throw new Error('HUD empty-state missing')
 console.error('dormant mount: host + canvas + HUD ✓')

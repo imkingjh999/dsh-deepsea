@@ -1,14 +1,14 @@
-# dsh-deepsea · Deep-Sea Claw
+# dsh-deepsea · Deep-Sea Slacking
 
 中文 | [English](README_EN.md)
 
-**Turn your conversation context into a deep-sea claw game** — a DeepSeek Harness (DSH) floating-window game:
-the longer your session context, the deeper the claw sinks; grab a creature from that depth and roll the
+**Turn your conversation context into a deep-sea slack-off game** — a DeepSeek Harness (DSH) floating-window game:
+the longer your session context, the deeper your hand sinks; touch a creature from that depth and roll the
 server's dice to mint a MiniMax-generated holographic collectible card.
 
 ## Preview
 
-| Ocean fishing | Card wall | Fish pond |
+| Ocean | Card wall | Fish pond |
 |:---:|:---:|:---:|
 | ![Ocean](assets/screenshots/deepsea-ocean.png) | ![Cards](assets/screenshots/deepsea-wall.png) | ![Pond](assets/screenshots/deepsea-pond.png) |
 
@@ -27,7 +27,7 @@ dsh plugin --profile web add github:imkingjh999/dsh-deepsea   # GitHub
 |---|---|
 | **Depth = occupancy** | Hook rides `contextPressure` (projectedTokens / contextWindow); HUD shows depth % + tokens |
 | **Four zones × five oceans** | Sunlit → Twilight → Midnight → Abyss, four viewports deep, camera follows the hook; Pacific / Atlantic / Indian / Arctic / Southern switch on demand — each with its own fauna, water tint and BGM |
-| **Manual claw, guaranteed contact** | The claw follows your pointer; click to snap. Overlap + click **always connects** — whether it becomes a card is the server's dice (1/5; 1/2 during a new diver's first 5 minutes), and the post-win 5-minute cooldown is server-adjudicated too |
+| **Manual touch, guaranteed contact** | Your hand follows the pointer; click to reach. Overlap + click **always connects** — whether it becomes a card is the server's dice (1/5; 1/2 during a new diver's first 5 minutes), and the post-win 5-minute cooldown is server-adjudicated too |
 | **Dice theater** | Each catch plays a hash-tail roll theater (fast tumble → settle → locked result): win mints, lose wriggles free |
 | **Water Margin 108 set** | The 108 Stars as deep-sea creatures: top-10 天罡 Legendary, 11-36 Epic, 地煞 Rare/Common; star-rank badges on every card |
 | **Holographic cards** | M3 lore + image-01 art; Python bakes diffraction/mask layers; browser composites the foil with pointer tilt; SSR gold-foil glow, UR rainbow sweep |

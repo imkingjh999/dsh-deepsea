@@ -184,7 +184,7 @@ export class OceanEngine {
   /* v50: the local catch locks are GONE. The session-start lock, the
    * post-catch cooldown and the post-miss re-grab lock all used to gate
    * closeClaw() — from the player's seat that read as "I clicked right
-   * on the fish and it didn't grab" (user: 碰到鱼的概率太低). Contact is
+   * on the fish and it didn't grab" (user: 摸到鱼的概率太低). Contact is
    * now deterministic: claw overlapping a fish + click ⇒ always a grab.
    * Pacing authority lives entirely server-side — the worker's win-only
    * 5-minute gate already rejects post-win attempts (too-soon), and a

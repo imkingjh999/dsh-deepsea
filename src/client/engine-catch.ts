@@ -10,7 +10,7 @@
  * a fish and the player clicks, the grab ALWAYS lands. There is no
  * contact-layer probability left (no lockUntil cooldown gate, no
  * dry/wet pity envelope). The only randomness in the whole loop is the
- * server's dice (pow.ts), exactly as the user asked: 重叠+左键必碰到,
+ * server's dice (pow.ts), exactly as the user asked: 重叠+左键必摸到,
  * 中不中骰子由服务端概率决定.
  */
 import type { Creature } from './engine.ts'
@@ -88,8 +88,8 @@ export function autoAttemptOn(eng: OceanEngine): boolean {
 /** Snap the claw shut on the nearest creature within the claw envelope —
  * the manual catch. v50 GUARANTEED-CONTACT contract: whenever the claw
  * visually overlaps a fish, this ALWAYS grabs — there is no cooldown
- * gate and no dry/wet luck window anymore (user: 爪子和鱼重叠时按左键
- * 就一定能碰到鱼; whether it becomes a card is the server dice's 1/5 —
+ * gate and no dry/wet luck window anymore (user: 手和鱼重叠时按左键
+ * 就一定能摸到鱼; whether it becomes a card is the server dice's 1/5 —
  * 1/2 for a rookie's first 5 minutes). The only short-circuits left are
  * physical: an unsettled hook (the line is still sinking to its target
  * depth after a depth change) claps empty, and so does a click that

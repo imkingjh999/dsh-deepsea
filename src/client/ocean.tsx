@@ -164,7 +164,7 @@ export function OceanApp(props: { sessionsRef: SessionsRef, visible?: boolean })
         return
       }
       busyRef.current = true
-      // "碰到" — the claw just snapped shut on a creature. Show the touch
+      // "摸到" — the hand just closed on a creature. Show the touch
       // hint immediately; the screenshot already implies the catch attempt.
       setStatus('touch')
       audioBus.sfx('bite')

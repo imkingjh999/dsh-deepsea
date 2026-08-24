@@ -5,7 +5,7 @@
  * Tests that previously relied on "bite picks the closest of the hook
  * zone" now place a specific creature directly on the hook first.
  *
- * v50 GUARANTEED CONTACT (user: 爪子和鱼重叠+左键 ⇒ 一定碰到): the local
+ * v50 GUARANTEED CONTACT (user: 手和鱼重叠+左键 ⇒ 一定摸到): the local
  * catch locks (session-start 75s, post-catch 75s, post-miss 8–20s) and
  * the dry/wet pity envelope are GONE. Overlap + click always grabs;
  * pacing authority is the server's win-only 5-minute gate. These specs

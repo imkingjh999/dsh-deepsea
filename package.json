@@ -1,7 +1,7 @@
 {
   "name": "dsh-deepsea",
-  "version": "1.0.8",
-  "description": "DSH plugin: 深海垂钓 —— context 越深钩越沉，答完钓起镭射生物卡 | Deep-sea fishing holo cards",
+  "version": "1.0.9",
+  "description": "DSH plugin: 深海摸鱼 —— context 越深潜得越深，答完摸鱼集镭射生物卡 | Deep-sea slacking holo cards",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -14,7 +14,10 @@
     "deepseek-harness",
     "gamification",
     "context-usage",
-    "minimax"
+    "minimax",
+    "moyu",
+    "摸鱼",
+    "slack-off"
   ],
   "engines": {
     "node": ">=20"
