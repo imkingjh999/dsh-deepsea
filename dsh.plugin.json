@@ -1,6 +1,6 @@
 {
   "id": "dsh-external/dsh-deepsea",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "main": "./lib/index.js",
   "description": "深海摸鱼：context 占用率驱动的摸鱼小游戏浮窗，AI 答完一轮摸一条鱼，摸鱼集镭射卡",
   "engines": {

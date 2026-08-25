@@ -1,6 +1,6 @@
 {
   "name": "dsh-deepsea",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "DSH plugin: 深海摸鱼 —— context 越深潜得越深，答完摸鱼集镭射生物卡 | Deep-sea slacking holo cards",
   "type": "module",
   "license": "MIT",
