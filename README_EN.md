@@ -29,11 +29,9 @@ dsh plugin --profile web add github:imkingjh999/dsh-deepsea   # GitHub
 | **Four zones × five oceans** | Sunlit → Twilight → Midnight → Abyss, four viewports deep, camera follows the hook; Pacific / Atlantic / Indian / Arctic / Southern switch on demand — each with its own fauna, water tint and BGM |
 | **Manual touch, guaranteed contact** | Your hand follows the pointer; click to reach. Overlap + click **always connects** — whether it becomes a card is the server's dice (1/5; 1/2 during a new diver's first 5 minutes), and the post-win 5-minute cooldown is server-adjudicated too |
 | **Dice theater** | Each catch plays a hash-tail roll theater (fast tumble → settle → locked result): win mints, lose wriggles free |
-| **Water Margin 108 set** | The 108 Stars as deep-sea creatures: top-10 天罡 Legendary, 11-36 Epic, 地煞 Rare/Common; star-rank badges on every card |
 | **Holographic cards** | M3 lore + image-01 art; Python bakes diffraction/mask layers; browser composites the foil with pointer tilt; SSR gold-foil glow, UR rainbow sweep |
 | **Card wall** | In-window grid (scrolls vertically); hover plays the entrance; click for the enlarged card + story |
 | **Fish pond** | Every catch swims in a multi-screen pond world: cruise, 0.5–2.5× pointer-anchored zoom, dual-sine surface light, MiniMax-painted island & boat silhouettes |
-| **On-chain identity** | Pre-minted cards are hash-chain blocks (`SHA256(prev|kind|payload)`); catches append blocks; `/api/chain/verify` recomputes |
 | **Tamper hardening** | Mint blocks record all three card-layer sha256s; `verify-assets` fetches and compares |
 | **Floating shell** | Float (drag / corner resize / dock **flush-right** via toggle or drag-to-edge), stick rail, minimize; the ocean never unmounts |
 | **Per-window boss key** | Auto-assigned (this window **Alt+X**; Shorts keeps Alt+S); title bar shows live combo; Alt+M mute |
