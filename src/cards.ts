@@ -24,9 +24,9 @@ export interface StoredCard {
   art: string
   holo: string
   mask: string
-  /** v2 pool cards: blockchain identity from the cloud mint chain. */
+  /** v2 pool cards: cloud pool identity (card id like DS-0007-a3f9c2e1). */
   mintId?: string
-  /** Ledger height of the mint block (display "block #"). */
+  /** Pool sequence number of this card. */
   blockHeight?: number
   /** 108-star assignment; decided server-side (Worker), never in the client. */
   star?: string

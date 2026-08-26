@@ -103,9 +103,9 @@ export interface CardRecord {
   art: string
   holo: string
   mask: string
-  /** v2 pool cards: blockchain identity (mint block id like DS-0007-a3f9c2e1). */
+  /** v2 pool cards: cloud pool identity (card id like DS-0007-a3f9c2e1). */
   mintId?: string
-  /** Ledger height of the mint block — the card's "block #". */
+  /** Pool sequence number of this card. */
   blockHeight?: number
   /** 108-star name — assigned server-side (Worker/D1), the client has no table. */
   star?: string
